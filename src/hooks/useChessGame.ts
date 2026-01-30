@@ -26,24 +26,23 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
     useEffect(() => {
         if (!gameId) return;
 
-        const subscriptionRelays = initialRelay ? [initialRelay] : relays;
+        const subscriptionRelays = initialRelay ? [...new Set([initialRelay, ...relays])] : relays;
+        console.log(`[ChessGame] Subscribing to game ${gameId} on relays:`, subscriptionRelays);
 
-        const sub = (pool as any).subscribeMany(subscriptionRelays, [
-            {
-                kinds: [CHESS_KIND],
-                '#d': [gameId],
-            },
-        ], {
-            onevent: (event: Event) => {
-                const d = event.tags.find(t => t[0] === 'd')?.[1];
-                const p = event.tags.filter(t => t[0] === 'p').map(t => t[1]);
-                const fen = event.tags.find(t => t[0] === 'fen')?.[1];
-                const status = event.tags.find(t => t[0] === 'status')?.[1] as GameState['status'];
-                const lastMove = event.tags.find(t => t[0] === 'move')?.[1];
-                const relay = event.tags.find(t => t[0] === 'relay')?.[1];
+        const handleEvent = (event: Event) => {
+            const d = event.tags.find(t => t[0] === 'd')?.[1];
+            const p = event.tags.filter(t => t[0] === 'p').map(t => t[1]);
+            const fen = event.tags.find(t => t[0] === 'fen')?.[1];
+            const status = event.tags.find(t => t[0] === 'status')?.[1] as GameState['status'];
+            const lastMove = event.tags.find(t => t[0] === 'move')?.[1];
+            const relay = event.tags.find(t => t[0] === 'relay')?.[1];
 
-                if (d && fen) {
-                    setGameState({
+            if (d === gameId && fen) {
+                setGameState(prev => {
+                    // Only update if the event is newer
+                    if (prev && (event.created_at <= (prev as any).created_at)) return prev;
+
+                    return {
                         id: d,
                         fen,
                         white: p[0],
@@ -52,10 +51,44 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
                         lastMove,
                         turn: new Chess(fen).turn(),
                         relay,
-                    });
-                    setGame(new Chess(fen));
-                }
+                        created_at: event.created_at, // store for comparison
+                    } as any;
+                });
+                setGame(new Chess(fen));
             }
+        };
+
+        // Fetch initial state first
+        const fetchInitial = async () => {
+            try {
+                const events = await (pool as any).querySync(subscriptionRelays, {
+                    kinds: [CHESS_KIND],
+                    '#d': [gameId],
+                    limit: 10,
+                });
+                if (events && events.length > 0) {
+                    // Sort by newest first
+                    events.sort((a: any, b: any) => b.created_at - a.created_at);
+                    handleEvent(events[0]);
+                } else {
+                    console.log(`[ChessGame] No initial state found for ${gameId}`);
+                }
+            } catch (e) {
+                console.error('[ChessGame] Failed to fetch initial state:', e);
+            }
+        };
+
+        fetchInitial();
+
+        // Then subscribe for updates
+        const sub = (pool as any).subscribeMany(subscriptionRelays, [
+            {
+                kinds: [CHESS_KIND],
+                '#d': [gameId],
+            },
+        ], {
+            onevent: handleEvent,
+            onclose: (reasons: any) => console.log('[ChessGame] Subscription closed:', reasons)
         });
 
         return () => sub.close();

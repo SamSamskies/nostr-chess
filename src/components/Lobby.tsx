@@ -8,9 +8,11 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { CHESS_KIND } from '@/lib/nostr';
 import { Event } from 'nostr-tools';
-import { Plus, Play, User, RefreshCw, Globe, X } from 'lucide-react';
+import { Plus, Play, User, RefreshCw, Globe, X, ExternalLink } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
-export function Lobby({ onSelectGame }: { onSelectGame: (id: string, relay?: string) => void }) {
+export function Lobby() {
+    const router = useRouter();
     const { pubkey, pool, relays, login, addRelay } = useNostr();
     const { createGame, joinGame } = useChessGame();
     const [games, setGames] = useState<GameState[]>([]);
@@ -73,24 +75,12 @@ export function Lobby({ onSelectGame }: { onSelectGame: (id: string, relay?: str
 
         const result = await createGame(selectedRelay);
         if (result) {
-            onSelectGame(result.id, result.relay);
+            router.push(`/game/${result.id}?relay=${encodeURIComponent(result.relay)}`);
         }
     };
 
-    const handleJoinGame = async (game: GameState) => {
-        if (game.white === pubkey) {
-            onSelectGame(game.id, game.relay);
-            return;
-        }
-        // Ensure we are connected to the relay the game is on
-        if (game.relay) {
-            addRelay(game.relay);
-        }
-
-        const success = await joinGame(game.id, game.white, game.relay);
-        if (success) {
-            onSelectGame(game.id, game.relay);
-        }
+    const handleJoinGame = (game: GameState) => {
+        router.push(`/game/${game.id}?relay=${encodeURIComponent(game.relay || '')}`);
     };
 
     if (!pubkey) {
@@ -208,7 +198,7 @@ export function Lobby({ onSelectGame }: { onSelectGame: (id: string, relay?: str
                             </CardContent>
                             <CardFooter className="pt-0 flex justify-end">
                                 <Button size="sm" variant="ghost" className="group-hover:text-indigo-400">
-                                    <Play className="w-4 h-4 mr-2" />
+                                    <ExternalLink className="w-4 h-4 mr-2" />
                                     {game.white === pubkey || game.black === pubkey ? 'Resume' : game.black ? 'Watch' : 'Join'}
                                 </Button>
                             </CardFooter>

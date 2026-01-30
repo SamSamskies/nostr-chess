@@ -8,28 +8,28 @@ import { ChevronLeft } from 'lucide-react';
 import { useNostr } from '@/contexts/NostrContext';
 
 export default function Home() {
-  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const [gameSession, setGameSession] = useState<{ id: string, relay?: string } | null>(null);
   const { pubkey } = useNostr();
 
   return (
     <div className="container mx-auto py-8">
-      {selectedGameId ? (
+      {gameSession ? (
         <div className="space-y-4">
           <div className="flex items-center gap-4 max-w-2xl mx-auto px-4">
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setSelectedGameId(null)}
+              onClick={() => setGameSession(null)}
             >
               <ChevronLeft className="w-4 h-4 mr-1" />
               Back to Lobby
             </Button>
             <h2 className="text-xl font-bold">Game Session</h2>
           </div>
-          <GameBoard gameId={selectedGameId} />
+          <GameBoard gameId={gameSession.id} relay={gameSession.relay} />
         </div>
       ) : (
-        <Lobby onSelectGame={setSelectedGameId} />
+        <Lobby onSelectGame={(id, relay) => setGameSession({ id, relay })} />
       )}
     </div>
   );

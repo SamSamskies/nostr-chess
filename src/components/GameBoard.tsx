@@ -8,8 +8,8 @@ import { useNostr } from '@/contexts/NostrContext';
 
 const ChessboardAny = Chessboard as any;
 
-export function GameBoard({ gameId }: { gameId: string }) {
-    const { game, gameState, makeMove } = useChessGame(gameId);
+export function GameBoard({ gameId, relay }: { gameId: string, relay?: string }) {
+    const { game, gameState, makeMove } = useChessGame(gameId, relay);
     const { pubkey } = useNostr();
 
     if (!gameState) {

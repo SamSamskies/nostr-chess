@@ -14,9 +14,10 @@ export interface GameState {
     status: 'awaiting-player' | 'in-progress' | 'checkmate' | 'draw' | 'resigned';
     lastMove?: string;
     turn: 'w' | 'b';
+    relay?: string;
 }
 
-export function useChessGame(gameId?: string) {
+export function useChessGame(gameId?: string, initialRelay?: string) {
     const { pubkey, pool, relays } = useNostr();
     const [game, setGame] = useState(new Chess());
     const [gameState, setGameState] = useState<GameState | null>(null);
@@ -25,7 +26,11 @@ export function useChessGame(gameId?: string) {
     useEffect(() => {
         if (!gameId) return;
 
-        const sub = (pool as any).subscribeMany(relays, [
+        const subscriptionRelays = initialRelay
+            ? [initialRelay, ...relays.filter(r => r !== initialRelay)]
+            : relays;
+
+        const sub = (pool as any).subscribeMany(subscriptionRelays, [
             {
                 kinds: [CHESS_KIND],
                 '#d': [gameId],
@@ -37,6 +42,7 @@ export function useChessGame(gameId?: string) {
                 const fen = event.tags.find(t => t[0] === 'fen')?.[1];
                 const status = event.tags.find(t => t[0] === 'status')?.[1] as GameState['status'];
                 const lastMove = event.tags.find(t => t[0] === 'move')?.[1];
+                const relay = event.tags.find(t => t[0] === 'relay')?.[1];
 
                 if (d && fen) {
                     setGameState({
@@ -47,6 +53,7 @@ export function useChessGame(gameId?: string) {
                         status: status || 'in-progress',
                         lastMove,
                         turn: new Chess(fen).turn(),
+                        relay,
                     });
                     setGame(new Chess(fen));
                 }
@@ -87,12 +94,15 @@ export function useChessGame(gameId?: string) {
                         ['fen', nextFen],
                         ['status', nextStatus],
                         ['move', typeof move === 'string' ? move : `${move.from}${move.to}`],
+                        ...(gameState.relay ? [['relay', gameState.relay]] : []),
                     ],
                     content: `Move: ${result.san}`,
                 };
 
                 const signedEvent = await window.nostr.signEvent(event);
-                await Promise.all(pool.publish(relays, signedEvent));
+                // Prioritize publishing to the game's designated relay if it exists
+                const publishRelays = gameState.relay ? [gameState.relay, ...relays.filter(r => r !== gameState.relay)] : relays;
+                await Promise.all(pool.publish(publishRelays, signedEvent));
                 return true;
             }
         } catch (e) {
@@ -107,6 +117,7 @@ export function useChessGame(gameId?: string) {
         const id = crypto.randomUUID();
         const initialFen = new Chess().fen();
 
+        const preferredRelay = relays[0];
         const event: UnsignedEvent = {
             kind: CHESS_KIND,
             pubkey: pubkey,
@@ -116,6 +127,7 @@ export function useChessGame(gameId?: string) {
                 ['p', pubkey],
                 ['fen', initialFen],
                 ['status', 'awaiting-player'],
+                ['relay', preferredRelay],
             ],
             content: 'New Chess Game',
         };
@@ -130,7 +142,7 @@ export function useChessGame(gameId?: string) {
         }
     };
 
-    const joinGame = async (gameId: string, opponentPubkey: string) => {
+    const joinGame = async (gameId: string, opponentPubkey: string, preferredRelay?: string) => {
         if (!pubkey || !window.nostr) return false;
 
         const initialFen = new Chess().fen();
@@ -144,6 +156,7 @@ export function useChessGame(gameId?: string) {
                 ['p', pubkey],
                 ['fen', initialFen],
                 ['status', 'in-progress'],
+                ['relay', preferredRelay || relays[0]],
             ],
             content: 'Joined Chess Game',
         };

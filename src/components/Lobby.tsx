@@ -10,7 +10,7 @@ import { CHESS_KIND } from '@/lib/nostr';
 import { Event } from 'nostr-tools';
 import { Plus, Play, User, RefreshCw } from 'lucide-react';
 
-export function Lobby({ onSelectGame }: { onSelectGame: (id: string) => void }) {
+export function Lobby({ onSelectGame }: { onSelectGame: (id: string, relay?: string) => void }) {
     const { pubkey, pool, relays, login } = useNostr();
     const { createGame, joinGame } = useChessGame();
     const [games, setGames] = useState<GameState[]>([]);
@@ -36,6 +36,7 @@ export function Lobby({ onSelectGame }: { onSelectGame: (id: string) => void }) 
                 const p = event.tags.filter(t => t[0] === 'p').map(t => t[1]);
                 const fen = event.tags.find(t => t[0] === 'fen')?.[1];
                 const status = event.tags.find(t => t[0] === 'status')?.[1] as GameState['status'];
+                const relay = event.tags.find(t => t[0] === 'relay')?.[1];
 
                 if (fen) {
                     gameMap.set(d, {
@@ -46,6 +47,7 @@ export function Lobby({ onSelectGame }: { onSelectGame: (id: string) => void }) 
                         status: status || 'in-progress',
                         turn: 'w', // simplified for list
                         created_at: event.created_at, // for comparison
+                        relay,
                     } as any);
                 }
             });
@@ -67,7 +69,7 @@ export function Lobby({ onSelectGame }: { onSelectGame: (id: string) => void }) 
     const handleCreateGame = async () => {
         const id = await createGame();
         if (id) {
-            onSelectGame(id);
+            onSelectGame(id, relays[0]);
         }
     };
 
@@ -76,7 +78,7 @@ export function Lobby({ onSelectGame }: { onSelectGame: (id: string) => void }) 
             onSelectGame(game.id);
             return;
         }
-        const success = await joinGame(game.id, game.white);
+        const success = await joinGame(game.id, game.white, game.relay);
         if (success) {
             onSelectGame(game.id);
         }

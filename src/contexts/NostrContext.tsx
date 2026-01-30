@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { SimplePool, Event } from 'nostr-tools';
-import { DEFAULT_RELAYS, NostrExtension } from '@/lib/nostr';
+import { NostrExtension } from '@/lib/nostr';
 
 interface NostrContextType {
     pubkey: string | null;
@@ -12,6 +12,7 @@ interface NostrContextType {
     logout: () => void;
     isLoading: boolean;
     error: string | null;
+    addRelay: (url: string) => void;
 }
 
 const NostrContext = createContext<NostrContextType | undefined>(undefined);
@@ -19,9 +20,14 @@ const NostrContext = createContext<NostrContextType | undefined>(undefined);
 export function NostrProvider({ children }: { children: ReactNode }) {
     const [pubkey, setPubkey] = useState<string | null>(null);
     const [pool] = useState(() => new SimplePool());
-    const [relays] = useState(DEFAULT_RELAYS);
+    const [relays, setRelays] = useState(['wss://relay.damus.io', 'wss://relay.snort.social', 'wss://nos.lol']);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    const addRelay = (url: string) => {
+        if (!url.startsWith('wss://') && !url.startsWith('ws://')) return;
+        setRelays(prev => prev.includes(url) ? prev : [...prev, url]);
+    };
 
     useEffect(() => {
         // Check if previously logged in (optional, but good for UX)
@@ -65,6 +71,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
                 logout,
                 isLoading,
                 error,
+                addRelay,
             }}
         >
             {children}

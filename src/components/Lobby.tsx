@@ -8,13 +8,14 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { CHESS_KIND } from '@/lib/nostr';
 import { Event } from 'nostr-tools';
-import { Plus, Play, User, RefreshCw } from 'lucide-react';
+import { Plus, Play, User, RefreshCw, Globe, X } from 'lucide-react';
 
 export function Lobby({ onSelectGame }: { onSelectGame: (id: string, relay?: string) => void }) {
-    const { pubkey, pool, relays, login } = useNostr();
+    const { pubkey, pool, relays, login, addRelay } = useNostr();
     const { createGame, joinGame } = useChessGame();
     const [games, setGames] = useState<GameState[]>([]);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [selectedRelay, setSelectedRelay] = useState('wss://relay.damus.io');
 
     const fetchGames = async () => {
         setIsRefreshing(true);
@@ -67,20 +68,28 @@ export function Lobby({ onSelectGame }: { onSelectGame: (id: string, relay?: str
     }, [pool, relays]);
 
     const handleCreateGame = async () => {
-        const id = await createGame();
-        if (id) {
-            onSelectGame(id, relays[0]);
+        // Add relay to our connection pool if it's new
+        addRelay(selectedRelay);
+
+        const result = await createGame(selectedRelay);
+        if (result) {
+            onSelectGame(result.id, result.relay);
         }
     };
 
     const handleJoinGame = async (game: GameState) => {
         if (game.white === pubkey) {
-            onSelectGame(game.id);
+            onSelectGame(game.id, game.relay);
             return;
         }
+        // Ensure we are connected to the relay the game is on
+        if (game.relay) {
+            addRelay(game.relay);
+        }
+
         const success = await joinGame(game.id, game.white, game.relay);
         if (success) {
-            onSelectGame(game.id);
+            onSelectGame(game.id, game.relay);
         }
     };
 
@@ -112,14 +121,45 @@ export function Lobby({ onSelectGame }: { onSelectGame: (id: string, relay?: str
                         {games.length}
                     </Badge>
                 </h2>
-                <div className="flex gap-2">
-                    <Button variant="outline" size="icon" onClick={fetchGames} isLoading={isRefreshing}>
-                        <RefreshCw className="w-4 h-4" />
-                    </Button>
-                    <Button onClick={handleCreateGame}>
-                        <Plus className="w-4 h-4 mr-2" />
-                        New Game
-                    </Button>
+                <div className="flex gap-4 items-end bg-slate-900/50 p-4 rounded-xl border border-slate-800/50">
+                    <div className="space-y-1.5 flex-1 max-w-[300px]">
+                        <label className="text-xs font-medium text-slate-400 flex items-center gap-1.5 ml-1">
+                            <Globe className="w-3 h-3" />
+                            Hosting Relay
+                        </label>
+                        <div className="relative group/input">
+                            <input
+                                type="text"
+                                value={selectedRelay}
+                                onChange={(e) => setSelectedRelay(e.target.value)}
+                                list="relay-list"
+                                placeholder="wss://relay.damus.io"
+                                className="appearance-none bg-slate-950/50 border border-slate-700/50 rounded-lg text-sm px-3 py-2 pr-9 outline-none focus:ring-2 focus:ring-indigo-500/50 w-full transition-all [&::-webkit-calendar-picker-indicator]:!hidden [&::-webkit-calendar-picker-indicator]:!opacity-0"
+                            />
+                            {selectedRelay && (
+                                <button
+                                    onClick={() => setSelectedRelay('')}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-slate-800 text-slate-500 hover:text-slate-300 transition-colors"
+                                >
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
+                            )}
+                            <datalist id="relay-list">
+                                {relays.map(r => (
+                                    <option key={r} value={r} />
+                                ))}
+                            </datalist>
+                        </div>
+                    </div>
+                    <div className="flex gap-2">
+                        <Button variant="outline" size="icon" onClick={fetchGames} isLoading={isRefreshing} className="h-9 w-9">
+                            <RefreshCw className="w-4 h-4" />
+                        </Button>
+                        <Button onClick={handleCreateGame} className="h-9">
+                            <Plus className="w-4 h-4 mr-2" />
+                            New Game
+                        </Button>
+                    </div>
                 </div>
             </div>
 
@@ -139,9 +179,14 @@ export function Lobby({ onSelectGame }: { onSelectGame: (id: string, relay?: str
                                             Created by {game.white.slice(0, 8)}...
                                         </CardDescription>
                                     </div>
-                                    <Badge variant={game.status === 'awaiting-player' ? 'warning' : 'success'}>
-                                        {game.status}
-                                    </Badge>
+                                    <div className="flex flex-col gap-1 items-end">
+                                        <Badge variant={game.status === 'awaiting-player' ? 'warning' : 'success'}>
+                                            {game.status}
+                                        </Badge>
+                                        <span className="text-[10px] text-slate-500 font-mono">
+                                            {game.relay?.replace('wss://', '')}
+                                        </span>
+                                    </div>
                                 </div>
                             </CardHeader>
                             <CardContent>

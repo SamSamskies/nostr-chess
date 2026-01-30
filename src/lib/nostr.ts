@@ -12,11 +12,4 @@ declare global {
     }
 }
 
-export const DEFAULT_RELAYS = [
-    'wss://relay.damus.io',
-    'wss://relay.snort.social',
-    'wss://nos.lol',
-    'wss://relay.nostr.band',
-];
-
 export const CHESS_KIND = 3064;

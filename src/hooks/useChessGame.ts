@@ -26,9 +26,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
     useEffect(() => {
         if (!gameId) return;
 
-        const subscriptionRelays = initialRelay
-            ? [initialRelay, ...relays.filter(r => r !== initialRelay)]
-            : relays;
+        const subscriptionRelays = initialRelay ? [initialRelay] : relays;
 
         const sub = (pool as any).subscribeMany(subscriptionRelays, [
             {
@@ -61,7 +59,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
         });
 
         return () => sub.close();
-    }, [gameId, pool, relays]);
+    }, [gameId, pool, relays, initialRelay]);
 
     const makeMove = async (move: string | { from: string; to: string; promotion?: string }) => {
         if (!gameState || !pubkey || !window.nostr) return false;
@@ -100,9 +98,15 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
                 };
 
                 const signedEvent = await window.nostr.signEvent(event);
-                // Prioritize publishing to the game's designated relay if it exists
-                const publishRelays = gameState.relay ? [gameState.relay, ...relays.filter(r => r !== gameState.relay)] : relays;
-                await Promise.all(pool.publish(publishRelays, signedEvent));
+                // Strictly use the game's designated relay for consistency as requested
+                const publishRelays = gameState.relay ? [gameState.relay] : relays;
+
+                try {
+                    await Promise.any(pool.publish(publishRelays, signedEvent));
+                } catch (e) {
+                    console.error('Failed to publish move to relay:', e);
+                    return false;
+                }
                 return true;
             }
         } catch (e) {
@@ -111,13 +115,13 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
         return false;
     };
 
-    const createGame = async () => {
+    const createGame = async (targetRelay?: string) => {
         if (!pubkey || !window.nostr) return null;
 
         const id = crypto.randomUUID();
         const initialFen = new Chess().fen();
 
-        const preferredRelay = relays[0];
+        const selectedRelay = targetRelay || 'wss://relay.damus.io';
         const event: UnsignedEvent = {
             kind: CHESS_KIND,
             pubkey: pubkey,
@@ -127,15 +131,15 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
                 ['p', pubkey],
                 ['fen', initialFen],
                 ['status', 'awaiting-player'],
-                ['relay', preferredRelay],
+                ['relay', selectedRelay],
             ],
             content: 'New Chess Game',
         };
 
         try {
             const signedEvent = await window.nostr.signEvent(event);
-            await Promise.all(pool.publish(relays, signedEvent));
-            return id;
+            await Promise.any(pool.publish([selectedRelay], signedEvent));
+            return { id, relay: selectedRelay };
         } catch (e) {
             console.error('Failed to create game:', e);
             return null;
@@ -163,7 +167,8 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
 
         try {
             const signedEvent = await window.nostr.signEvent(event);
-            await Promise.all(pool.publish(relays, signedEvent));
+            const targetRelay = preferredRelay || relays[0];
+            await Promise.any(pool.publish([targetRelay], signedEvent));
             return true;
         } catch (e) {
             console.error('Failed to join game:', e);

@@ -3,22 +3,28 @@
 import { Chessboard } from 'react-chessboard';
 import { useChessGame } from '@/hooks/useChessGame';
 import { useNostr } from '@/contexts/NostrContext';
+import { PlayerProfile } from '@/components/PlayerProfile';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import confetti from 'canvas-confetti';
-import { Trophy, RefreshCw, AlertCircle, User } from 'lucide-react';
+import { Trophy, RefreshCw, AlertCircle } from 'lucide-react';
+import { User, Trophy as TrophyIcon } from 'lucide-react';
 
 export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRelay?: string }) {
     const { pubkey } = useNostr();
     const { gameState, makeMove, resetGame } = useChessGame(gameId, initialRelay);
     const [showGameOver, setShowGameOver] = useState(false);
 
-    const isMyTurn = (pubkey?.toLowerCase() === gameState.white?.toLowerCase() && gameState.turn === 'w') ||
-        (pubkey?.toLowerCase() === gameState.black?.toLowerCase() && gameState.turn === 'b');
+    const isMyTurn = useMemo(() => {
+        return (pubkey?.toLowerCase() === gameState.white?.toLowerCase() && gameState.turn === 'w') ||
+            (pubkey?.toLowerCase() === gameState.black?.toLowerCase() && gameState.turn === 'b');
+    }, [pubkey, gameState.white, gameState.black, gameState.turn]);
 
-    const amIPlaying = pubkey?.toLowerCase() === gameState.white?.toLowerCase() ||
-        pubkey?.toLowerCase() === gameState.black?.toLowerCase();
+    const amIPlaying = useMemo(() => {
+        return pubkey?.toLowerCase() === gameState.white?.toLowerCase() ||
+            pubkey?.toLowerCase() === gameState.black?.toLowerCase();
+    }, [pubkey, gameState.white, gameState.black]);
 
     useEffect(() => {
         if (gameState.winner) {
@@ -67,12 +73,6 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
             ? "Game Drawn"
             : "";
 
-    const formatPubkey = (pk: string) => {
-        if (pk === 'Player 1' || pk === 'Player 2') return pk;
-        if (pk?.toLowerCase() === pubkey?.toLowerCase()) return "You";
-        return `${pk.slice(0, 8)}...${pk.slice(-4)}`;
-    };
-
     return (
         <div className="relative">
             <Card className="max-w-2xl mx-auto overflow-hidden border-slate-800 bg-slate-900/40 backdrop-blur-sm shadow-2xl">
@@ -94,20 +94,17 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
                     )}
                 </CardHeader>
                 <CardContent className="p-6 bg-slate-950/30">
-                    {/* Opponent Identity */}
-                    <div className="flex items-center gap-2 mb-4 px-2">
-                        <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center">
-                            <User className="w-4 h-4 text-slate-400" />
-                        </div>
-                        <span className="text-sm font-medium text-slate-300">
-                            {formatPubkey(gameState.black || 'Searching...')}
-                        </span>
-                        {gameState.turn === 'b' && !gameState.winner && (
-                            <span className="animate-pulse bg-indigo-500/20 text-indigo-400 text-[10px] px-2 py-0.5 rounded-full border border-indigo-500/30">Thinking...</span>
-                        )}
-                    </div>
 
-                    <div className="relative w-full max-w-[500px] mx-auto group">
+                    {/* Top Player (Black by default if user is White) */}
+                    <PlayerProfile
+                        pubkey={gameState.black}
+                        isTurn={gameState.turn === 'b' && !gameState.winner}
+                        isWinner={gameState.winner === 'b'}
+                        side="black"
+                        label="Opponent"
+                    />
+
+                    <div className="relative w-full max-w-[500px] mx-auto group my-6">
                         <div className={`transition-all duration-700 ${showGameOver ? 'grayscale-[0.5] opacity-40 scale-[0.98]' : ''}`}>
                             <Chessboard
                                 options={{
@@ -128,7 +125,7 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
                             <div className="absolute inset-0 flex items-center justify-center z-10 animate-in fade-in zoom-in duration-500">
                                 <div className="bg-slate-900/90 border border-slate-700 p-8 rounded-2xl shadow-2xl text-center backdrop-blur-md max-w-[80%] border-t-indigo-500/50">
                                     <div className="mb-4 inline-flex p-3 rounded-full bg-indigo-500/10 text-indigo-400">
-                                        {gameState.winner === 'draw' ? <AlertCircle className="w-10 h-10" /> : <Trophy className="w-10 h-10" />}
+                                        {gameState.winner === 'draw' ? <AlertCircle className="w-10 h-10" /> : <TrophyIcon className="w-10 h-10" />}
                                     </div>
                                     <h2 className="text-3xl font-black text-white mb-1 tracking-tight">
                                         {winnerText}
@@ -148,18 +145,15 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
                         )}
                     </div>
 
-                    {/* My Identity */}
-                    <div className="flex items-center gap-2 mt-4 px-2">
-                        <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center">
-                            <User className="w-4 h-4 text-indigo-400" />
-                        </div>
-                        <span className="text-sm font-medium text-white">
-                            {formatPubkey(gameState.white)}
-                        </span>
-                        {gameState.turn === 'w' && !gameState.winner && (
-                            <span className="animate-pulse bg-indigo-500/20 text-indigo-400 text-[10px] px-2 py-0.5 rounded-full border border-indigo-500/30">Your Turn</span>
-                        )}
-                    </div>
+                    {/* Bottom Player (White by default if user is White) */}
+                    <PlayerProfile
+                        pubkey={gameState.white}
+                        isTurn={gameState.turn === 'w' && !gameState.winner}
+                        isWinner={gameState.winner === 'w'}
+                        side="white"
+                        label="White"
+                    />
+
                 </CardContent>
             </Card>
         </div>

@@ -12,8 +12,8 @@ import { Trophy, RefreshCw, AlertCircle } from 'lucide-react';
 import { User, Trophy as TrophyIcon } from 'lucide-react';
 
 export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRelay?: string }) {
-    const { pubkey } = useNostr();
-    const { gameState, makeMove, resetGame } = useChessGame(gameId, initialRelay);
+    const { pubkey, login } = useNostr();
+    const { gameState, makeMove, resetGame, joinGame } = useChessGame(gameId, initialRelay);
     const [showGameOver, setShowGameOver] = useState(false);
 
     const isMyTurn = useMemo(() => {
@@ -95,14 +95,27 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
                 </CardHeader>
                 <CardContent className="p-6 bg-slate-950/30">
 
-                    {/* Top Player (Black by default if user is White) */}
-                    <PlayerProfile
-                        pubkey={gameState.black}
-                        isTurn={gameState.turn === 'b' && !gameState.winner}
-                        isWinner={gameState.winner === 'b'}
-                        side="black"
-                        label="Opponent"
-                    />
+                    {/* Top Player (Black) */}
+                    <div className="relative group/player">
+                        <PlayerProfile
+                            pubkey={gameState.black}
+                            isTurn={gameState.turn === 'b' && !gameState.winner}
+                            isWinner={gameState.winner === 'b'}
+                            side="black"
+                            label="Opponent"
+                        />
+                        {!amIPlaying && (!gameState.black || gameState.black === 'Player 2') && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 rounded-xl backdrop-blur-[2px] opacity-100 transition-opacity">
+                                <Button
+                                    onClick={() => pubkey ? joinGame(gameId, gameState.white, initialRelay) : login()}
+                                    size="sm"
+                                    className="bg-indigo-600 hover:bg-indigo-500 font-bold shadow-lg shadow-indigo-500/20"
+                                >
+                                    {pubkey ? 'Join as Black' : 'Login to Join'}
+                                </Button>
+                            </div>
+                        )}
+                    </div>
 
                     <div className="relative w-full max-w-[500px] mx-auto group my-6">
                         <div className={`transition-all duration-700 ${showGameOver ? 'grayscale-[0.5] opacity-40 scale-[0.98]' : ''}`}>

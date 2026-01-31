@@ -212,9 +212,9 @@ export function Lobby() {
                                 <span className="text-[10px] text-slate-600 font-mono font-bold truncate pr-4">
                                     {game.relay?.replace('wss://', '')}
                                 </span>
-                                <Button size="sm" variant="ghost" className="text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 font-bold px-0 h-auto">
+                                <Button size="sm" variant="secondary" className="bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 hover:text-indigo-300 border border-indigo-500/20 font-bold ml-auto">
                                     {game.white === pubkey || game.black === pubkey ? 'Resume' : game.black ? 'Watch' : 'Join Match'}
-                                    <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
+                                    <ExternalLink className="w-3.5 h-3.5 ml-2" />
                                 </Button>
                             </CardFooter>
                         </Card>

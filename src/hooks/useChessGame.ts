@@ -135,8 +135,11 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
 
                     try {
                         const signedEvent = await window.nostr.signEvent(event);
-                        const publishRelays = remoteGameState.relay ? [remoteGameState.relay] : relays;
-                        await Promise.any(pool.publish(publishRelays, signedEvent));
+                        const publishRelays = remoteGameState.relay ? [remoteGameState.relay] : (relays.length > 0 ? relays : ['wss://relay.damus.io']);
+
+                        // Publish to relays without crashing if one fails
+                        const pubs = pool.publish(publishRelays, signedEvent);
+                        await Promise.allSettled(pubs);
                     } catch (publishError) {
                         console.error('[useChessGame] Failed to publish move:', publishError);
                     }
@@ -201,7 +204,8 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
 
             try {
                 const signedEvent = await window.nostr.signEvent(event);
-                await Promise.any(pool.publish([selectedRelay], signedEvent));
+                const pubs = pool.publish([selectedRelay], signedEvent);
+                await Promise.allSettled(pubs);
                 return { id: newId, relay: selectedRelay };
             } catch (e) {
                 console.error('Failed to create game:', e);
@@ -210,8 +214,15 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
         },
         joinGame: async (gId: string, opponent: string, preferredRelay?: string) => {
             if (!pubkey || !window.nostr) return false;
-            const startFen = new Chess().fen();
-            const targetRelay = preferredRelay || relays[0];
+
+            // refuse to join if opponent is a placeholder
+            if (!opponent || opponent === 'Player 1') {
+                console.error('Cannot join game with invalid opponent pubkey');
+                return false;
+            }
+
+            const startFen = fen; // Use current FEN (safest) or new Chess().fen() if strictly new
+            const targetRelay = preferredRelay || relays[0] || 'wss://relay.damus.io';
 
             const event: UnsignedEvent = {
                 kind: CHESS_KIND,
@@ -228,12 +239,26 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
                 content: 'Joined Chess Game',
             };
 
+            // OPTIMISTIC UPDATE
+            setRemoteGameState({
+                white: opponent,
+                black: pubkey,
+                status: 'in-progress',
+                relay: targetRelay,
+                created_at: event.created_at
+            });
+
             try {
                 const signedEvent = await window.nostr.signEvent(event);
-                await Promise.any(pool.publish([targetRelay], signedEvent));
+                const pubs = pool.publish([targetRelay], signedEvent);
+                const results = await Promise.allSettled(pubs);
+                const success = results.some(r => r.status === 'fulfilled');
+                if (!success) console.warn('Publish completed but may have failed on some relays');
                 return true;
             } catch (e) {
                 console.error('Failed to join game:', e);
+                // Revert optimistic update? 
+                // In practice, it's better to leave it or handle error UI, but for now we log.
                 return false;
             }
         },

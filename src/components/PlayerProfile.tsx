@@ -3,6 +3,7 @@
 import { useProfile } from '@/hooks/useProfile';
 import { User, Trophy } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
+import { useState, useEffect } from 'react';
 
 interface PlayerProfileProps {
     pubkey?: string | null;
@@ -13,16 +14,30 @@ interface PlayerProfileProps {
 }
 
 export function PlayerProfile({ pubkey, isTurn, isWinner, side, label }: PlayerProfileProps) {
-    const { profile, isLoading } = useProfile(pubkey);
+    // Don't fetch profile for placeholder strings
+    const isValidPubkey = pubkey && pubkey !== 'Player 1' && pubkey !== 'Player 2' && pubkey.length > 20;
+    const { profile, isLoading } = useProfile(isValidPubkey ? pubkey : null);
 
-    const displayName = profile?.name || (pubkey ? `${pubkey.slice(0, 8)}...` : label || 'Searching...');
-    const avatar = profile?.picture;
-    const elo = profile?.elo;
+    // Internal state to hold the last valid profile data (prevents flickering/wiping)
+    const [savedProfile, setSavedProfile] = useState<typeof profile | null>(null);
+
+    useEffect(() => {
+        if (profile?.name || profile?.picture) {
+            setSavedProfile(profile);
+        }
+    }, [profile]);
+
+    // Use saved profile if current is loading or null (but we have a saved one)
+    const displayProfile = profile?.name || profile?.picture ? profile : (savedProfile || profile);
+
+    const displayName = displayProfile?.name || (pubkey ? `${pubkey.slice(0, 8)}...` : label || 'Searching...');
+    const avatar = displayProfile?.picture;
+    const elo = displayProfile?.elo;
 
     return (
         <div className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-500 ${isTurn
-                ? 'bg-indigo-500/10 border border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.1)]'
-                : 'bg-transparent border border-transparent opacity-80'
+            ? 'bg-indigo-500/10 border border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.1)]'
+            : 'bg-transparent border border-transparent opacity-80'
             } ${isWinner ? 'animate-bounce ring-2 ring-yellow-500/50' : ''}`}>
 
             {/* Avatar Container */}

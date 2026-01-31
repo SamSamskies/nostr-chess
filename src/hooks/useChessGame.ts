@@ -32,6 +32,17 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
         }
     }, [fen]);
 
+    // Use refs to access latest state in callbacks without triggering re-renders/re-subscriptions
+    const remoteGameStateRef = useMemo(() => {
+        const ref = { current: remoteGameState };
+        return ref;
+    }, []); // Initial ref container
+
+    // Update ref whenever state changes
+    useEffect(() => {
+        remoteGameStateRef.current = remoteGameState;
+    }, [remoteGameState]);
+
     // Handle incoming Nostr events
     const handleEvent = useCallback((event: Event) => {
         const d = event.tags.find(t => t[0] === 'd')?.[1];
@@ -44,9 +55,9 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
 
         if (eventFen) {
             setFen(prevFen => {
-                // Only update if the event is newer
+                const currentRemote = remoteGameStateRef.current;
                 const eventTime = event.created_at;
-                const prevTime = remoteGameState.created_at || 0;
+                const prevTime = currentRemote.created_at || 0;
 
                 if (eventTime < prevTime) return prevFen;
                 if (eventTime === prevTime && eventFen === prevFen) return prevFen;
@@ -56,16 +67,18 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
 
             setRemoteGameState(prev => {
                 if (event.created_at < (prev.created_at || 0)) return prev;
+
+                // Merge players: if event misses a player (e.g. latency race), keep existing
                 return {
-                    white: p[0],
-                    black: p[1],
+                    white: prev.white || p[0],
+                    black: prev.black || p[1],
                     status: status || 'in-progress',
                     relay,
                     created_at: event.created_at
                 };
             });
         }
-    }, [gameId, remoteGameState.created_at]);
+    }, [gameId, remoteGameStateRef]);
 
     // Subscribe to gameplay updates
     useEffect(() => {

@@ -29,7 +29,6 @@ export function useProfile(pubkey?: string | null) {
 
     useEffect(() => {
         if (!pubkey) {
-            setProfile(null);
             setIsLoading(false);
             return;
         }
@@ -38,6 +37,11 @@ export function useProfile(pubkey?: string | null) {
         if (profileCache.has(pubkey)) {
             setProfile(profileCache.get(pubkey)!);
             setIsLoading(false);
+            return;
+        }
+
+        // Check if we already have the profile in state for this pubkey (prevent re-fetch on pool/relay change)
+        if (profile && profile.pubkey === pubkey) {
             return;
         }
 

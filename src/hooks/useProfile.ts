@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { useNostr } from '@/contexts/NostrContext';
 import { CHESS_KIND } from '@/lib/nostr';
 import { INITIAL_ELO, processGameResult } from '@/lib/elo';
-import { Event } from 'nostr-tools';
 
 export interface Profile {
     pubkey: string;
@@ -17,16 +16,45 @@ export interface Profile {
     draws: number;
 }
 
+// Global cache to prevent re-fetching
+const profileCache = new Map<string, Profile>();
+const activeRequests = new Map<string, Promise<void>>();
+
 export function useProfile(pubkey?: string | null) {
     const { pool, relays } = useNostr();
-    const [profile, setProfile] = useState<Profile | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
+    const [profile, setProfile] = useState<Profile | null>(() =>
+        (pubkey && profileCache.has(pubkey)) ? profileCache.get(pubkey)! : null
+    );
+    const [isLoading, setIsLoading] = useState(!profile && !!pubkey);
 
     useEffect(() => {
-        if (!pubkey) return;
+        if (!pubkey) {
+            setProfile(null);
+            setIsLoading(false);
+            return;
+        }
 
-        const fetchProfile = async () => {
+        // Check cache first
+        if (profileCache.has(pubkey)) {
+            setProfile(profileCache.get(pubkey)!);
+            setIsLoading(false);
+            return;
+        }
+
+        // Check if a request is already in progress
+        if (activeRequests.has(pubkey)) {
             setIsLoading(true);
+            activeRequests.get(pubkey)!.then(() => {
+                if (profileCache.has(pubkey)) {
+                    setProfile(profileCache.get(pubkey)!);
+                }
+            }).finally(() => setIsLoading(false));
+            return;
+        }
+
+        setIsLoading(true);
+
+        const fetchPromise = async () => {
             try {
                 // Fetch metadata (Kind 0)
                 const metadata = await pool.get(relays, {
@@ -65,9 +93,6 @@ export function useProfile(pubkey?: string | null) {
                 let draws = 0;
                 let gamesPlayed = 0;
 
-                // Note: This is a simplified ELO calculation. 
-                // In a real app, you'd want a more robust way to handle this, 
-                // perhaps indexers. Here we calculate from history.
                 sortedGames.forEach(game => {
                     const status = game.tags.find(t => t[0] === 'status')?.[1];
                     const pTags = game.tags.filter(t => t[0] === 'p').map(t => t[1]);
@@ -82,7 +107,7 @@ export function useProfile(pubkey?: string | null) {
 
                     let result: 'white' | 'black' | 'draw' = 'draw';
                     if (status === 'checkmate') {
-                        result = turn === 'w' ? 'black' : 'white'; // If it's W's turn and checkmate, B won
+                        result = turn === 'w' ? 'black' : 'white';
                     } else if (status === 'resigned') {
                         result = turn === 'w' ? 'black' : 'white';
                     }
@@ -96,7 +121,7 @@ export function useProfile(pubkey?: string | null) {
                     elos[black] = blackNew;
                 });
 
-                setProfile({
+                const newProfile: Profile = {
                     pubkey,
                     name,
                     picture,
@@ -105,16 +130,25 @@ export function useProfile(pubkey?: string | null) {
                     wins,
                     losses,
                     draws,
-                });
+                };
+
+                profileCache.set(pubkey, newProfile);
+                setProfile(newProfile);
+
             } catch (e) {
                 console.error('Failed to fetch profile', e);
-            } finally {
-                setIsLoading(false);
             }
         };
 
-        fetchProfile();
-    }, [pubkey, pool, relays]);
+        const request = fetchPromise();
+        activeRequests.set(pubkey, request);
+
+        request.finally(() => {
+            activeRequests.delete(pubkey);
+            setIsLoading(false);
+        });
+
+    }, [pubkey, pool, relays]); // Re-run if pubkey changes. Relays/pool usually stable.
 
     return { profile, isLoading };
 }

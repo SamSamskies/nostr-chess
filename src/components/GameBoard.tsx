@@ -8,7 +8,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useEffect, useState, useMemo } from 'react';
 import confetti from 'canvas-confetti';
-import { Trophy, RefreshCw, AlertCircle } from 'lucide-react';
+import { Trophy, AlertCircle } from 'lucide-react';
 import { User, Trophy as TrophyIcon } from 'lucide-react';
 
 export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRelay?: string }) {
@@ -86,12 +86,6 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
                             {gameState.status.replace('-', ' ')}
                         </p>
                     </div>
-                    {!gameState.winner && !amIPlaying && (
-                        <Button variant="outline" size="sm" onClick={resetGame} className="border-slate-700 hover:bg-slate-800">
-                            <RefreshCw className="w-3.5 h-3.5 mr-2" />
-                            Reset Locally
-                        </Button>
-                    )}
                 </CardHeader>
                 <CardContent className="p-6 bg-slate-950/30">
 

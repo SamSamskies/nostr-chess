@@ -1,37 +1,54 @@
 'use client';
 
-import { useEffect } from 'react';
 import { Chessboard } from 'react-chessboard';
-import { useChessGame, GameState } from '@/hooks/useChessGame';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
-import { Badge } from './ui/Badge';
-import { Button } from '@/components/ui/Button';
+import { useChessGame } from '@/hooks/useChessGame';
 import { useNostr } from '@/contexts/NostrContext';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { useEffect, useState } from 'react';
+import confetti from 'canvas-confetti';
+import { Trophy, RefreshCw, AlertCircle, User } from 'lucide-react';
 
-const ChessboardAny = Chessboard as any;
+export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRelay?: string }) {
+    const { pubkey } = useNostr();
+    const { gameState, makeMove, resetGame } = useChessGame(gameId, initialRelay);
+    const [showGameOver, setShowGameOver] = useState(false);
 
-export function GameBoard({ gameId, relay }: { gameId: string, relay?: string }) {
-    const { pubkey, login, addRelay } = useNostr();
-    const { game, gameState, makeMove, joinGame } = useChessGame(gameId, relay);
+    const isMyTurn = (pubkey?.toLowerCase() === gameState.white?.toLowerCase() && gameState.turn === 'w') ||
+        (pubkey?.toLowerCase() === gameState.black?.toLowerCase() && gameState.turn === 'b');
 
-    // Ensure we are connected to the relay in the URL
+    const amIPlaying = pubkey?.toLowerCase() === gameState.white?.toLowerCase() ||
+        pubkey?.toLowerCase() === gameState.black?.toLowerCase();
+
     useEffect(() => {
-        if (relay) {
-            addRelay(relay);
+        if (gameState.winner) {
+            setShowGameOver(true);
+            if (gameState.winner !== 'draw') {
+                const duration = 3 * 1000;
+                const animationEnd = Date.now() + duration;
+                const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+                const randomInRange = (min: number, max: number) => Math.random() * (max - min) + min;
+
+                const interval: any = setInterval(function () {
+                    const timeLeft = animationEnd - Date.now();
+                    if (timeLeft <= 0) return clearInterval(interval);
+                    const particleCount = 50 * (timeLeft / duration);
+                    confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } });
+                    confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
+                }, 250);
+            }
+        } else {
+            setShowGameOver(false);
         }
-    }, [relay, addRelay]);
+    }, [gameState.winner]);
 
-    if (!gameState) {
-        return (
-            <div className="flex flex-col items-center justify-center p-12 space-y-4">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div>
-                <div className="text-slate-400">Fetching game state from Nostr...</div>
-            </div>
-        );
-    }
+    const handlePieceDrop = (args: any): boolean => {
+        if (gameState.winner) return false;
+        if (!isMyTurn) return false;
 
-    const onDrop = (sourceSquare: string, targetSquare: string): boolean => {
-        if (!pubkey) return false;
+        const { sourceSquare, targetSquare } = args;
+        if (!targetSquare) return false;
+
         makeMove({
             from: sourceSquare,
             to: targetSquare,
@@ -40,73 +57,111 @@ export function GameBoard({ gameId, relay }: { gameId: string, relay?: string })
         return true;
     };
 
-    const isWhite = pubkey === gameState.white;
-    const isBlack = pubkey === gameState.black;
-    const isPlayer = isWhite || isBlack;
-    const isMyTurn = (gameState.turn === 'w' && isWhite) || (gameState.turn === 'b' && isBlack);
+    const winnerText = gameState.winner === 'draw'
+        ? "It's a Draw!"
+        : `${gameState.winner === 'w' ? 'White' : 'Black'} Wins!`;
 
-    const canJoin = !isPlayer && gameState.status === 'awaiting-player';
+    const statusDetail = gameState.status === 'checkmate'
+        ? "by Checkmate"
+        : gameState.status === 'draw'
+            ? "Game Drawn"
+            : "";
 
-    const handleJoin = async () => {
-        if (!pubkey) {
-            await login();
-            return;
-        }
-        await joinGame(gameState.id, gameState.white, relay);
+    const formatPubkey = (pk: string) => {
+        if (pk === 'Player 1' || pk === 'Player 2') return pk;
+        if (pk?.toLowerCase() === pubkey?.toLowerCase()) return "You";
+        return `${pk.slice(0, 8)}...${pk.slice(-4)}`;
     };
 
-    const statusColor = gameState.status === 'in-progress' ? 'bg-green-500' : 'bg-slate-500';
-
     return (
-        <Card className="max-w-2xl mx-auto overflow-hidden border-slate-800 bg-slate-900/40">
-            <CardHeader className="flex flex-row items-center justify-between border-b border-slate-800 pb-4">
-                <div>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                        Game #{gameId.slice(0, 8)}
-                        {relay && (
-                            <span className="text-[10px] font-mono text-slate-500 px-1.5 py-0.5 bg-slate-800 rounded">
-                                {relay.replace('wss://', '')}
-                            </span>
-                        )}
-                    </CardTitle>
-                    <div className="flex gap-2 mt-1">
-                        <span className="text-xs text-slate-400 font-mono">White: {gameState.white.slice(0, 8)}...</span>
-                        {gameState.black && (
-                            <span className="text-xs text-slate-400 font-mono">Black: {gameState.black.slice(0, 8)}...</span>
-                        )}
-                    </div>
-                </div>
-                <div className="flex flex-col items-end gap-2">
-                    <div className="flex items-center gap-2">
-                        {canJoin && (
-                            <Button size="sm" onClick={handleJoin} className="h-8 shadow-lg shadow-indigo-500/20">
-                                {pubkey ? 'Join as Black' : 'Login to Join'}
-                            </Button>
-                        )}
-                        <div className={`px-2 py-1 rounded text-[10px] uppercase font-bold text-white ${statusColor}`}>
+        <div className="relative">
+            <Card className="max-w-2xl mx-auto overflow-hidden border-slate-800 bg-slate-900/40 backdrop-blur-sm shadow-2xl">
+                <CardHeader className="flex flex-row items-center justify-between border-b border-slate-800 pb-4">
+                    <div>
+                        <CardTitle className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+                            Nostr Chess
+                        </CardTitle>
+                        <p className="text-xs text-slate-500 font-mono flex items-center gap-1.5 mt-1">
+                            <span className={`w-2 h-2 rounded-full ${gameState.winner ? 'bg-red-500' : 'bg-green-500 animate-pulse'}`} />
                             {gameState.status.replace('-', ' ')}
-                        </div>
+                        </p>
                     </div>
-                    {gameState.status === 'in-progress' && (
-                        <div className={`text-sm font-semibold ${isMyTurn ? 'text-indigo-400 animate-pulse' : 'text-slate-400'}`}>
-                            {isPlayer ? (isMyTurn ? "Your Turn" : "Opponent's Turn") : `${gameState.turn === 'w' ? 'White' : 'Black'}'s Turn`}
-                        </div>
+                    {!gameState.winner && !amIPlaying && (
+                        <Button variant="outline" size="sm" onClick={resetGame} className="border-slate-700 hover:bg-slate-800">
+                            <RefreshCw className="w-3.5 h-3.5 mr-2" />
+                            Reset Locally
+                        </Button>
                     )}
-                </div>
-            </CardHeader>
-            <CardContent className="p-0 sm:p-6 bg-slate-950/50">
-                <div className="aspect-square w-full max-w-[500px] mx-auto">
-                    <ChessboardAny
-                        position={gameState.fen}
-                        onPieceDrop={onDrop as any}
-                        boardOrientation={isBlack ? 'black' : 'white'}
-                        customDarkSquareStyle={{ backgroundColor: '#1e293b' }}
-                        customLightSquareStyle={{ backgroundColor: '#334155' }}
-                        animationDuration={300}
-                        arePiecesDraggable={isMyTurn}
-                    />
-                </div>
-            </CardContent>
-        </Card>
+                </CardHeader>
+                <CardContent className="p-6 bg-slate-950/30">
+                    {/* Opponent Identity */}
+                    <div className="flex items-center gap-2 mb-4 px-2">
+                        <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center">
+                            <User className="w-4 h-4 text-slate-400" />
+                        </div>
+                        <span className="text-sm font-medium text-slate-300">
+                            {formatPubkey(gameState.black || 'Searching...')}
+                        </span>
+                        {gameState.turn === 'b' && !gameState.winner && (
+                            <span className="animate-pulse bg-indigo-500/20 text-indigo-400 text-[10px] px-2 py-0.5 rounded-full border border-indigo-500/30">Thinking...</span>
+                        )}
+                    </div>
+
+                    <div className="relative w-full max-w-[500px] mx-auto group">
+                        <div className={`transition-all duration-700 ${showGameOver ? 'grayscale-[0.5] opacity-40 scale-[0.98]' : ''}`}>
+                            <Chessboard
+                                options={{
+                                    id: "nostr-board",
+                                    position: gameState.fen,
+                                    onPieceDrop: handlePieceDrop,
+                                    boardOrientation: "white",
+                                    allowDragging: isMyTurn && !gameState.winner,
+                                    showAnimations: true,
+                                    animationDurationInMs: 200,
+                                    darkSquareStyle: { backgroundColor: '#1e293b' },
+                                    lightSquareStyle: { backgroundColor: '#334155' }
+                                }}
+                            />
+                        </div>
+
+                        {showGameOver && (
+                            <div className="absolute inset-0 flex items-center justify-center z-10 animate-in fade-in zoom-in duration-500">
+                                <div className="bg-slate-900/90 border border-slate-700 p-8 rounded-2xl shadow-2xl text-center backdrop-blur-md max-w-[80%] border-t-indigo-500/50">
+                                    <div className="mb-4 inline-flex p-3 rounded-full bg-indigo-500/10 text-indigo-400">
+                                        {gameState.winner === 'draw' ? <AlertCircle className="w-10 h-10" /> : <Trophy className="w-10 h-10" />}
+                                    </div>
+                                    <h2 className="text-3xl font-black text-white mb-1 tracking-tight">
+                                        {winnerText}
+                                    </h2>
+                                    <p className="text-slate-400 mb-8 font-medium">
+                                        {statusDetail}
+                                    </p>
+                                    <Button
+                                        size="lg"
+                                        onClick={resetGame}
+                                        className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-lg shadow-indigo-600/20"
+                                    >
+                                        Back to Lobby
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* My Identity */}
+                    <div className="flex items-center gap-2 mt-4 px-2">
+                        <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center">
+                            <User className="w-4 h-4 text-indigo-400" />
+                        </div>
+                        <span className="text-sm font-medium text-white">
+                            {formatPubkey(gameState.white)}
+                        </span>
+                        {gameState.turn === 'w' && !gameState.winner && (
+                            <span className="animate-pulse bg-indigo-500/20 text-indigo-400 text-[10px] px-2 py-0.5 rounded-full border border-indigo-500/30">Your Turn</span>
+                        )}
+                    </div>
+                </CardContent>
+            </Card>
+        </div>
     );
 }

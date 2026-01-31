@@ -1,64 +1,78 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { Chess, Move } from 'chess.js';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { Chess } from 'chess.js';
 import { useNostr } from '@/contexts/NostrContext';
 import { CHESS_KIND } from '@/lib/nostr';
-import { Event, UnsignedEvent, getEventHash } from 'nostr-tools';
+import { Event, UnsignedEvent } from 'nostr-tools';
 
 export interface GameState {
     id: string;
     fen: string;
-    white: string; // pubkey
-    black?: string; // pubkey
+    white: string; // pubkey or name
+    black?: string; // pubkey or name
     status: 'awaiting-player' | 'in-progress' | 'checkmate' | 'draw' | 'resigned';
-    lastMove?: string;
     turn: 'w' | 'b';
+    winner?: 'w' | 'b' | 'draw';
     relay?: string;
+    created_at?: number;
 }
 
 export function useChessGame(gameId?: string, initialRelay?: string) {
     const { pubkey, pool, relays } = useNostr();
-    const [game, setGame] = useState(new Chess());
-    const [gameState, setGameState] = useState<GameState | null>(null);
+    const [fen, setFen] = useState('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+    const [remoteGameState, setRemoteGameState] = useState<Partial<GameState>>({});
 
-    // Subscribe to game updates
+    const game = useMemo(() => {
+        try {
+            return new Chess(fen);
+        } catch (e) {
+            console.error('[useChessGame] FEN error, falling back to start:', e);
+            return new Chess();
+        }
+    }, [fen]);
+
+    // Handle incoming Nostr events
+    const handleEvent = useCallback((event: Event) => {
+        const d = event.tags.find(t => t[0] === 'd')?.[1];
+        if (d !== gameId) return;
+
+        const p = event.tags.filter(t => t[0] === 'p').map(t => t[1]);
+        const eventFen = event.tags.find(t => t[0] === 'fen')?.[1];
+        const status = event.tags.find(t => t[0] === 'status')?.[1] as GameState['status'];
+        const relay = event.tags.find(t => t[0] === 'relay')?.[1];
+
+        if (eventFen) {
+            setFen(prevFen => {
+                // Only update if the event is newer
+                const eventTime = event.created_at;
+                const prevTime = remoteGameState.created_at || 0;
+
+                if (eventTime < prevTime) return prevFen;
+                if (eventTime === prevTime && eventFen === prevFen) return prevFen;
+
+                return eventFen;
+            });
+
+            setRemoteGameState(prev => {
+                if (event.created_at < (prev.created_at || 0)) return prev;
+                return {
+                    white: p[0],
+                    black: p[1],
+                    status: status || 'in-progress',
+                    relay,
+                    created_at: event.created_at
+                };
+            });
+        }
+    }, [gameId, remoteGameState.created_at]);
+
+    // Subscribe to gameplay updates
     useEffect(() => {
-        if (!gameId) return;
+        if (!gameId || !pool) return;
 
         const subscriptionRelays = initialRelay ? [...new Set([initialRelay, ...relays])] : relays;
-        console.log(`[ChessGame] Subscribing to game ${gameId} on relays:`, subscriptionRelays);
 
-        const handleEvent = (event: Event) => {
-            const d = event.tags.find(t => t[0] === 'd')?.[1];
-            const p = event.tags.filter(t => t[0] === 'p').map(t => t[1]);
-            const fen = event.tags.find(t => t[0] === 'fen')?.[1];
-            const status = event.tags.find(t => t[0] === 'status')?.[1] as GameState['status'];
-            const lastMove = event.tags.find(t => t[0] === 'move')?.[1];
-            const relay = event.tags.find(t => t[0] === 'relay')?.[1];
-
-            if (d === gameId && fen) {
-                setGameState(prev => {
-                    // Only update if the event is newer
-                    if (prev && (event.created_at <= (prev as any).created_at)) return prev;
-
-                    return {
-                        id: d,
-                        fen,
-                        white: p[0],
-                        black: p[1],
-                        status: status || 'in-progress',
-                        lastMove,
-                        turn: new Chess(fen).turn(),
-                        relay,
-                        created_at: event.created_at, // store for comparison
-                    } as any;
-                });
-                setGame(new Chess(fen));
-            }
-        };
-
-        // Fetch initial state first
         const fetchInitial = async () => {
             try {
                 const events = await (pool as any).querySync(subscriptionRelays, {
@@ -66,154 +80,162 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
                     '#d': [gameId],
                     limit: 10,
                 });
+
                 if (events && events.length > 0) {
-                    // Sort by newest first
                     events.sort((a: any, b: any) => b.created_at - a.created_at);
                     handleEvent(events[0]);
-                } else {
-                    console.log(`[ChessGame] No initial state found for ${gameId}`);
                 }
             } catch (e) {
-                console.error('[ChessGame] Failed to fetch initial state:', e);
+                console.error('[useChessGame] Initial fetch failed:', e);
             }
         };
 
         fetchInitial();
 
-        // Then subscribe for updates
         const sub = (pool as any).subscribeMany(subscriptionRelays, [
             {
                 kinds: [CHESS_KIND],
                 '#d': [gameId],
             },
         ], {
-            onevent: handleEvent,
-            onclose: (reasons: any) => console.log('[ChessGame] Subscription closed:', reasons)
+            onevent: handleEvent
         });
 
         return () => sub.close();
-    }, [gameId, pool, relays, initialRelay]);
+    }, [gameId, pool, relays, initialRelay, handleEvent]);
 
-    const makeMove = async (move: string | { from: string; to: string; promotion?: string }) => {
-        if (!gameState || !pubkey || !window.nostr) return false;
-
-        // Check if it's the player's turn
-        const isWhite = pubkey === gameState.white;
-        const isBlack = pubkey === gameState.black;
-        if ((game.turn() === 'w' && !isWhite) || (game.turn() === 'b' && !isBlack)) {
-            return false;
-        }
-
+    const makeMove = useCallback(async (move: string | { from: string; to: string; promotion?: string }) => {
         try {
-            const result = game.move(move);
+            const gameCopy = new Chess(game.fen());
+            const result = gameCopy.move(move);
+
             if (result) {
-                const nextFen = game.fen();
-                const nextStatus = game.isCheckmate()
-                    ? 'checkmate'
-                    : game.isDraw()
-                        ? 'draw'
-                        : 'in-progress';
+                const nextFen = gameCopy.fen();
+                // Optimistic update
+                setFen(nextFen);
 
-                const event: UnsignedEvent = {
-                    kind: CHESS_KIND,
-                    pubkey: pubkey,
-                    created_at: Math.floor(Date.now() / 1000),
-                    tags: [
-                        ['d', gameState.id],
-                        ['p', gameState.white],
-                        ['p', gameState.black || ''],
-                        ['fen', nextFen],
-                        ['status', nextStatus],
-                        ['move', typeof move === 'string' ? move : `${move.from}${move.to}`],
-                        ...(gameState.relay ? [['relay', gameState.relay]] : []),
-                    ],
-                    content: `Move: ${result.san}`,
-                };
+                // If multi-player, publish move
+                if (pubkey && window.nostr && (remoteGameState.white || remoteGameState.black)) {
+                    const nextStatus = gameCopy.isCheckmate() ? 'checkmate' : gameCopy.isDraw() ? 'draw' : 'in-progress';
+                    const event: UnsignedEvent = {
+                        kind: CHESS_KIND,
+                        pubkey: pubkey,
+                        created_at: Math.floor(Date.now() / 1000),
+                        tags: [
+                            ['d', gameId!],
+                            ['p', remoteGameState.white || pubkey],
+                            ['p', remoteGameState.black || (remoteGameState.white === pubkey ? '' : pubkey)],
+                            ['fen', nextFen],
+                            ['status', nextStatus],
+                            ['move', result.san],
+                            ...(remoteGameState.relay ? [['relay', remoteGameState.relay]] : []),
+                        ],
+                        content: `Move: ${result.san}`,
+                    };
 
-                const signedEvent = await window.nostr.signEvent(event);
-                // Strictly use the game's designated relay for consistency as requested
-                const publishRelays = gameState.relay ? [gameState.relay] : relays;
-
-                try {
-                    await Promise.any(pool.publish(publishRelays, signedEvent));
-                } catch (e) {
-                    console.error('Failed to publish move to relay:', e);
-                    return false;
+                    try {
+                        const signedEvent = await window.nostr.signEvent(event);
+                        const publishRelays = remoteGameState.relay ? [remoteGameState.relay] : relays;
+                        await Promise.any(pool.publish(publishRelays, signedEvent));
+                    } catch (publishError) {
+                        console.error('[useChessGame] Failed to publish move:', publishError);
+                    }
                 }
                 return true;
             }
         } catch (e) {
-            console.error('Invalid move:', e);
+            console.error('[useChessGame.makeMove] EXCEPTION:', e);
         }
         return false;
-    };
+    }, [game, pubkey, gameId, remoteGameState, pool, relays]);
 
-    const createGame = async (targetRelay?: string) => {
-        if (!pubkey || !window.nostr) return null;
+    const resetGame = useCallback(() => {
+        setFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+    }, []);
 
-        const id = crypto.randomUUID();
-        const initialFen = new Chess().fen();
+    const isCheckmate = game.isCheckmate();
+    const isDraw = game.isDraw();
 
-        const selectedRelay = targetRelay || 'wss://relay.damus.io';
-        const event: UnsignedEvent = {
-            kind: CHESS_KIND,
-            pubkey: pubkey,
-            created_at: Math.floor(Date.now() / 1000),
-            tags: [
-                ['d', id],
-                ['p', pubkey],
-                ['fen', initialFen],
-                ['status', 'awaiting-player'],
-                ['relay', selectedRelay],
-            ],
-            content: 'New Chess Game',
-        };
+    let winner: 'w' | 'b' | 'draw' | undefined = undefined;
+    if (isCheckmate) {
+        winner = game.turn() === 'w' ? 'b' : 'w';
+    } else if (isDraw) {
+        winner = 'draw';
+    }
 
-        try {
-            const signedEvent = await window.nostr.signEvent(event);
-            await Promise.any(pool.publish([selectedRelay], signedEvent));
-            return { id, relay: selectedRelay };
-        } catch (e) {
-            console.error('Failed to create game:', e);
-            return null;
-        }
-    };
-
-    const joinGame = async (gameId: string, opponentPubkey: string, preferredRelay?: string) => {
-        if (!pubkey || !window.nostr) return false;
-
-        const initialFen = new Chess().fen();
-        const event: UnsignedEvent = {
-            kind: CHESS_KIND,
-            pubkey: pubkey,
-            created_at: Math.floor(Date.now() / 1000),
-            tags: [
-                ['d', gameId],
-                ['p', opponentPubkey],
-                ['p', pubkey],
-                ['fen', initialFen],
-                ['status', 'in-progress'],
-                ['relay', preferredRelay || relays[0]],
-            ],
-            content: 'Joined Chess Game',
-        };
-
-        try {
-            const signedEvent = await window.nostr.signEvent(event);
-            const targetRelay = preferredRelay || relays[0];
-            await Promise.any(pool.publish([targetRelay], signedEvent));
-            return true;
-        } catch (e) {
-            console.error('Failed to join game:', e);
-            return false;
-        }
+    const gameState: GameState = {
+        id: gameId || 'local-game',
+        fen: fen,
+        white: remoteGameState.white || 'Player 1',
+        black: remoteGameState.black || 'Player 2',
+        status: isCheckmate ? 'checkmate' : isDraw ? 'draw' : (remoteGameState.status || 'in-progress'),
+        turn: game.turn(),
+        winner,
+        relay: remoteGameState.relay,
     };
 
     return {
         game,
         gameState,
         makeMove,
-        createGame,
-        joinGame,
+        resetGame,
+        createGame: async (targetRelay?: string) => {
+            if (!pubkey || !window.nostr) return null;
+            const newId = crypto.randomUUID();
+            const startFen = new Chess().fen();
+            const selectedRelay = targetRelay || relays[0] || 'wss://relay.damus.io';
+
+            const event: UnsignedEvent = {
+                kind: CHESS_KIND,
+                pubkey: pubkey,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: [
+                    ['d', newId],
+                    ['p', pubkey],
+                    ['fen', startFen],
+                    ['status', 'awaiting-player'],
+                    ['relay', selectedRelay],
+                ],
+                content: 'New Chess Game',
+            };
+
+            try {
+                const signedEvent = await window.nostr.signEvent(event);
+                await Promise.any(pool.publish([selectedRelay], signedEvent));
+                return { id: newId, relay: selectedRelay };
+            } catch (e) {
+                console.error('Failed to create game:', e);
+                return null;
+            }
+        },
+        joinGame: async (gId: string, opponent: string, preferredRelay?: string) => {
+            if (!pubkey || !window.nostr) return false;
+            const startFen = new Chess().fen();
+            const targetRelay = preferredRelay || relays[0];
+
+            const event: UnsignedEvent = {
+                kind: CHESS_KIND,
+                pubkey: pubkey,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: [
+                    ['d', gId],
+                    ['p', opponent],
+                    ['p', pubkey],
+                    ['fen', startFen],
+                    ['status', 'in-progress'],
+                    ['relay', targetRelay],
+                ],
+                content: 'Joined Chess Game',
+            };
+
+            try {
+                const signedEvent = await window.nostr.signEvent(event);
+                await Promise.any(pool.publish([targetRelay], signedEvent));
+                return true;
+            } catch (e) {
+                console.error('Failed to join game:', e);
+                return false;
+            }
+        },
     };
 }

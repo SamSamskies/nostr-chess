@@ -23,7 +23,7 @@ export default function GamePage() {
                 </Link>
                 <h2 className="text-xl font-bold">Game Session</h2>
             </div>
-            <GameBoard gameId={gameId} relay={relay} />
+            <GameBoard gameId={gameId} initialRelay={relay} />
         </div>
     );
 }

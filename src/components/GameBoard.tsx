@@ -26,6 +26,9 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
             pubkey?.toLowerCase() === gameState.black?.toLowerCase();
     }, [pubkey, gameState.white, gameState.black]);
 
+    const amIBlack = useMemo(() => pubkey?.toLowerCase() === gameState.black?.toLowerCase(), [pubkey, gameState.black]);
+    const boardOrientation = amIBlack ? 'black' : 'white';
+
     useEffect(() => {
         if (gameState.winner) {
             setShowGameOver(true);
@@ -89,27 +92,39 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
                 </CardHeader>
                 <CardContent className="p-6 bg-slate-950/30">
 
-                    {/* Top Player (Black) */}
-                    <div className="relative group/player">
-                        <PlayerProfile
-                            pubkey={gameState.black}
-                            isTurn={gameState.turn === 'b' && !gameState.winner}
-                            isWinner={gameState.winner === 'b'}
-                            side="black"
-                            label="Opponent"
-                        />
-                        {!amIPlaying && (!gameState.black || gameState.black === 'Player 2') && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 rounded-xl backdrop-blur-[2px] opacity-100 transition-opacity">
-                                <Button
-                                    onClick={() => pubkey ? joinGame(gameId, gameState.white, initialRelay) : login()}
-                                    size="sm"
-                                    className="bg-indigo-600 hover:bg-indigo-500 font-bold shadow-lg shadow-indigo-500/20"
-                                >
-                                    {pubkey ? 'Join as Black' : 'Login to Join'}
-                                </Button>
-                            </div>
-                        )}
-                    </div>
+                    {/* Top: opponent */}
+                    {amIBlack ? (
+                        <div className="relative group/player">
+                            <PlayerProfile
+                                pubkey={gameState.white}
+                                isTurn={gameState.turn === 'w' && !gameState.winner}
+                                isWinner={gameState.winner === 'w'}
+                                side="white"
+                                label={amIPlaying ? 'Opponent' : 'White'}
+                            />
+                        </div>
+                    ) : (
+                        <div className="relative group/player">
+                            <PlayerProfile
+                                pubkey={gameState.black}
+                                isTurn={gameState.turn === 'b' && !gameState.winner}
+                                isWinner={gameState.winner === 'b'}
+                                side="black"
+                                label={amIPlaying ? 'Opponent' : 'Black'}
+                            />
+                            {!amIPlaying && (!gameState.black || gameState.black === 'Player 2') && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 rounded-xl backdrop-blur-[2px] opacity-100 transition-opacity">
+                                    <Button
+                                        onClick={() => pubkey ? joinGame(gameId, gameState.white, initialRelay) : login()}
+                                        size="sm"
+                                        className="bg-indigo-600 hover:bg-indigo-500 font-bold shadow-lg shadow-indigo-500/20"
+                                    >
+                                        {pubkey ? 'Join as Black' : 'Login to Join'}
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     <div className="relative w-full max-w-[500px] mx-auto group my-6">
                         <div className={`transition-all duration-700 ${showGameOver ? 'grayscale-[0.5] opacity-40 scale-[0.98]' : ''}`}>
@@ -118,7 +133,7 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
                                     id: "nostr-board",
                                     position: gameState.fen,
                                     onPieceDrop: handlePieceDrop,
-                                    boardOrientation: "white",
+                                    boardOrientation,
                                     allowDragging: isMyTurn && !gameState.winner,
                                     showAnimations: true,
                                     animationDurationInMs: 200,
@@ -152,14 +167,24 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
                         )}
                     </div>
 
-                    {/* Bottom Player (White by default if user is White) */}
-                    <PlayerProfile
-                        pubkey={gameState.white}
-                        isTurn={gameState.turn === 'w' && !gameState.winner}
-                        isWinner={gameState.winner === 'w'}
-                        side="white"
-                        label="White"
-                    />
+                    {/* Bottom: current user (or white when spectating) */}
+                    {amIBlack ? (
+                        <PlayerProfile
+                            pubkey={gameState.black}
+                            isTurn={gameState.turn === 'b' && !gameState.winner}
+                            isWinner={gameState.winner === 'b'}
+                            side="black"
+                            label={amIPlaying ? 'You' : 'Black'}
+                        />
+                    ) : (
+                        <PlayerProfile
+                            pubkey={gameState.white}
+                            isTurn={gameState.turn === 'w' && !gameState.winner}
+                            isWinner={gameState.winner === 'w'}
+                            side="white"
+                            label={amIPlaying ? 'You' : 'White'}
+                        />
+                    )}
 
                 </CardContent>
             </Card>

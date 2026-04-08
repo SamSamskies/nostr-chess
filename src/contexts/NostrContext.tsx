@@ -10,6 +10,7 @@ interface NostrContextType {
     pubkey: string | null;
     pool: SimplePool;
     relay: string;
+    effectiveRelay: string;
     login: () => Promise<void>;
     logout: () => void;
     isLoading: boolean;
@@ -27,9 +28,10 @@ export function NostrProvider({ children }: { children: ReactNode }) {
     const [error, setError] = useState<string | null>(null);
 
     const setRelay = (url: string) => {
-        const t = url.trim();
-        setRelayState(t || DEFAULT_RELAY);
+        setRelayState(url.trim());
     };
+
+    const effectiveRelay = relay.trim() || DEFAULT_RELAY;
 
     useEffect(() => {
         // Check if previously logged in (optional, but good for UX)
@@ -69,6 +71,7 @@ export function NostrProvider({ children }: { children: ReactNode }) {
                 pubkey,
                 pool,
                 relay,
+                effectiveRelay,
                 login,
                 logout,
                 isLoading,

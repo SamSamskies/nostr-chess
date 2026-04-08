@@ -36,7 +36,7 @@ function chessFromPgnOrStart(pgn: string): Chess {
 }
 
 export function useChessGame(gameId?: string, initialRelay?: string) {
-    const { pubkey, pool, relay } = useNostr();
+    const { pubkey, pool, effectiveRelay } = useNostr();
     const [pgnContent, setPgnContent] = useState('');
     const [remoteGameState, setRemoteGameState] = useState<Partial<GameState>>({});
 
@@ -45,11 +45,11 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
     const game = useMemo(() => chessFromPgnOrStart(pgnContent), [pgnContent]);
 
     const remoteGameStateRef = useRef<Partial<GameState>>({});
-    const relayRef = useRef(relay);
+    const relayRef = useRef(effectiveRelay);
 
     useEffect(() => {
-        relayRef.current = relay;
-    }, [relay]);
+        relayRef.current = effectiveRelay;
+    }, [effectiveRelay]);
 
     useEffect(() => {
         remoteGameStateRef.current = remoteGameState;
@@ -181,7 +181,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
 
                         try {
                             const signedEvent = await window.nostr.signEvent(event);
-                            const publishRelays = r.relay ? [r.relay] : [relay];
+                            const publishRelays = r.relay ? [r.relay] : [effectiveRelay];
                             const pubs = pool.publish(publishRelays, signedEvent);
                             await Promise.allSettled(pubs);
                         } catch (publishError) {
@@ -195,7 +195,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
             }
             return false;
         },
-        [pubkey, gameId, pgnContent, pool, relay]
+        [pubkey, gameId, pgnContent, pool, effectiveRelay]
     );
 
     const resign = useCallback(async () => {
@@ -235,7 +235,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
             };
 
             const signedEvent = await window.nostr.signEvent(event);
-            const publishRelays = r.relay ? [r.relay] : [relay];
+            const publishRelays = r.relay ? [r.relay] : [effectiveRelay];
             const pubs = pool.publish(publishRelays, signedEvent);
             await Promise.allSettled(pubs);
             return true;
@@ -243,7 +243,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
             console.error('[useChessGame.resign]', e);
             return false;
         }
-    }, [pubkey, gameId, pgnContent, pool, relay]);
+    }, [pubkey, gameId, pgnContent, pool, effectiveRelay]);
 
     const fen = game.fen();
     const whiteDisplay = remoteGameState.white || 'Player 1';
@@ -270,7 +270,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
         createGame: async (targetRelay?: string) => {
             if (!pubkey || !window.nostr) return null;
             const newId = crypto.randomUUID();
-            const selectedRelay = targetRelay || relay || 'wss://relay.damus.io';
+            const selectedRelay = targetRelay || effectiveRelay;
             const body = createOpenGamePgn(pubkey, selectedRelay);
 
             const event: UnsignedEvent = {
@@ -304,7 +304,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
                 return false;
             }
 
-            const targetRelay = preferredRelay || relay || 'wss://relay.damus.io';
+            const targetRelay = preferredRelay || effectiveRelay;
             const created_at = Math.floor(Date.now() / 1000);
 
             const c = chessFromPgnOrStart(pgnContent);

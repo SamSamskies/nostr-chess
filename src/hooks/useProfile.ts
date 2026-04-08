@@ -22,7 +22,7 @@ const profileCache = new Map<string, Profile>();
 const activeRequests = new Map<string, Promise<void>>();
 
 export function useProfile(pubkey?: string | null) {
-    const { pool, relay } = useNostr();
+    const { pool, effectiveRelay } = useNostr();
     const [profile, setProfile] = useState<Profile | null>(() =>
         (pubkey && profileCache.has(pubkey)) ? profileCache.get(pubkey)! : null
     );
@@ -62,7 +62,7 @@ export function useProfile(pubkey?: string | null) {
         const fetchPromise = async () => {
             try {
                 // Fetch metadata (Kind 0)
-                const metadata = await pool.get([relay], {
+                const metadata = await pool.get([effectiveRelay], {
                     kinds: [0],
                     authors: [pubkey],
                 });
@@ -81,7 +81,7 @@ export function useProfile(pubkey?: string | null) {
                 }
 
                 // Fetch all completed games to calculate ELO
-                const games = await pool.querySync([relay], {
+                const games = await pool.querySync([effectiveRelay], {
                     kinds: [CHESS_KIND],
                     '#p': [pubkey],
                 });
@@ -160,7 +160,7 @@ export function useProfile(pubkey?: string | null) {
             setIsLoading(false);
         });
 
-    }, [pubkey, pool, relay]);
+    }, [pubkey, pool, effectiveRelay]);
 
     return { profile, isLoading };
 }

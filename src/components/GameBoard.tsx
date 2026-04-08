@@ -6,7 +6,9 @@ import { useNostr } from '@/contexts/NostrContext';
 import { PlayerProfile } from '@/components/PlayerProfile';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { useEffect, useState, useMemo, useRef, type CSSProperties } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback, type CSSProperties } from 'react';
+import type { Square } from 'chess.js';
+import type { SquareHandlerArgs } from 'react-chessboard';
 import { playMoveSound } from '@/lib/moveSound';
 import confetti from 'canvas-confetti';
 import { Trophy, AlertCircle } from 'lucide-react';
@@ -16,7 +18,12 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
     const { pubkey, login } = useNostr();
     const { game, gameState, makeMove, resetGame, joinGame } = useChessGame(gameId, initialRelay);
     const [showGameOver, setShowGameOver] = useState(false);
+    const [moveFrom, setMoveFrom] = useState<Square | null>(null);
     const prevMoveCountRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        setMoveFrom(null);
+    }, [gameState.fen]);
 
     const isMyTurn = useMemo(() => {
         return (pubkey?.toLowerCase() === gameState.white?.toLowerCase() && gameState.turn === 'w') ||
@@ -44,6 +51,68 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
             [last.to]: highlight,
         };
     }, [game]);
+
+    const legalMoveSquareStyles = useMemo(() => {
+        if (!moveFrom || !isMyTurn || gameState.winner) return {};
+        const verboseMoves = game.moves({ square: moveFrom, verbose: true });
+        const out: Record<string, CSSProperties> = {};
+        for (const m of verboseMoves) {
+            const isCapture = Boolean(m.captured);
+            out[m.to] = {
+                ...out[m.to],
+                ...(isCapture
+                    ? {
+                        boxShadow: 'inset 0 0 0 5px rgba(239, 68, 68, 0.55)',
+                    }
+                    : {
+                        backgroundImage:
+                            'radial-gradient(circle at center, rgba(226, 232, 240, 0.62) 15%, rgba(226, 232, 240, 0.16) 24%, transparent 25%)',
+                    }),
+            };
+        }
+        out[moveFrom] = {
+            ...out[moveFrom],
+            backgroundColor: 'rgba(82, 175, 96, 0.38)',
+            boxShadow: 'inset 0 0 0 2px rgba(82, 175, 96, 0.65)',
+        };
+        return out;
+    }, [moveFrom, game, isMyTurn, gameState.winner]);
+
+    const mergedSquareStyles = useMemo(() => {
+        return { ...lastMoveSquareStyles, ...legalMoveSquareStyles };
+    }, [lastMoveSquareStyles, legalMoveSquareStyles]);
+
+    const handleSquareClick = useCallback(
+        ({ square }: SquareHandlerArgs) => {
+            if (gameState.winner) return;
+            if (!isMyTurn) return;
+
+            const sq = square as Square;
+
+            if (moveFrom) {
+                const candidates = game.moves({ square: moveFrom, verbose: true }).filter(m => m.to === sq);
+                if (candidates.length > 0) {
+                    const hasPromotion = candidates.some(m => m.promotion);
+                    makeMove({
+                        from: moveFrom,
+                        to: sq,
+                        ...(hasPromotion ? { promotion: 'q' as const } : {}),
+                    });
+                    setMoveFrom(null);
+                    return;
+                }
+            }
+
+            const piece = game.get(sq);
+            if (piece && piece.color === game.turn()) {
+                setMoveFrom(prev => (prev === sq ? null : sq));
+                return;
+            }
+
+            setMoveFrom(null);
+        },
+        [game, gameState.winner, isMyTurn, moveFrom, makeMove]
+    );
 
     useEffect(() => {
         const n = game.history().length;
@@ -91,6 +160,7 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
             to: targetSquare,
             promotion: 'q',
         });
+        setMoveFrom(null);
         return true;
     };
 
@@ -161,13 +231,14 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
                                     id: "nostr-board",
                                     position: gameState.fen,
                                     onPieceDrop: handlePieceDrop,
+                                    onSquareClick: handleSquareClick,
                                     boardOrientation,
                                     allowDragging: isMyTurn && !gameState.winner,
                                     showAnimations: true,
                                     animationDurationInMs: 200,
                                     darkSquareStyle: { backgroundColor: '#1e293b' },
                                     lightSquareStyle: { backgroundColor: '#334155' },
-                                    squareStyles: lastMoveSquareStyles,
+                                    squareStyles: mergedSquareStyles,
                                 }}
                             />
                         </div>

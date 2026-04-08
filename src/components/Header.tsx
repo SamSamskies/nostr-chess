@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useNostr } from '@/contexts/NostrContext';
 import { useProfile } from '@/hooks/useProfile';
 import { Button } from '@/components/ui/Button';
@@ -12,10 +13,13 @@ export function Header() {
     return (
         <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-50">
             <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-                <div className="flex items-center gap-2 font-bold text-xl text-indigo-400">
-                    <Swords className="w-6 h-6" />
+                <Link
+                    href="/"
+                    className="flex items-center gap-2 font-bold text-xl text-indigo-400 hover:text-indigo-300 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400 rounded-sm"
+                >
+                    <Swords className="w-6 h-6 shrink-0" aria-hidden />
                     <span>Nostr Chess</span>
-                </div>
+                </Link>
 
                 <div>
                     {pubkey ? (

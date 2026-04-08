@@ -6,14 +6,14 @@ import { useNostr } from '@/contexts/NostrContext';
 import { PlayerProfile } from '@/components/PlayerProfile';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, type CSSProperties } from 'react';
 import confetti from 'canvas-confetti';
 import { Trophy, AlertCircle } from 'lucide-react';
 import { User, Trophy as TrophyIcon } from 'lucide-react';
 
 export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRelay?: string }) {
     const { pubkey, login } = useNostr();
-    const { gameState, makeMove, resetGame, joinGame } = useChessGame(gameId, initialRelay);
+    const { game, gameState, makeMove, resetGame, joinGame } = useChessGame(gameId, initialRelay);
     const [showGameOver, setShowGameOver] = useState(false);
 
     const isMyTurn = useMemo(() => {
@@ -28,6 +28,20 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
 
     const amIBlack = useMemo(() => pubkey?.toLowerCase() === gameState.black?.toLowerCase(), [pubkey, gameState.black]);
     const boardOrientation = amIBlack ? 'black' : 'white';
+
+    const lastMoveSquareStyles = useMemo(() => {
+        const verbose = game.history({ verbose: true });
+        if (verbose.length === 0) return {};
+        const last = verbose[verbose.length - 1];
+        const highlight: CSSProperties = {
+            backgroundColor: 'rgba(251, 191, 36, 0.38)',
+            boxShadow: 'inset 0 0 0 2px rgba(251, 191, 36, 0.55)',
+        };
+        return {
+            [last.from]: highlight,
+            [last.to]: highlight,
+        };
+    }, [game]);
 
     useEffect(() => {
         if (gameState.winner) {
@@ -138,7 +152,8 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
                                     showAnimations: true,
                                     animationDurationInMs: 200,
                                     darkSquareStyle: { backgroundColor: '#1e293b' },
-                                    lightSquareStyle: { backgroundColor: '#334155' }
+                                    lightSquareStyle: { backgroundColor: '#334155' },
+                                    squareStyles: lastMoveSquareStyles,
                                 }}
                             />
                         </div>

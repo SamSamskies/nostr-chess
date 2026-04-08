@@ -70,6 +70,7 @@ export function Lobby() {
     const { createGame, joinGame } = useChessGame();
     const [games, setGames] = useState<GameState[]>([]);
     const [relayInput, setRelayInput] = useState(relay);
+    const [relayInputFocused, setRelayInputFocused] = useState(false);
 
     useEffect(() => {
         setRelayInput(relay);
@@ -187,13 +188,19 @@ export function Lobby() {
                                         setRelay(v);
                                     }
                                 }}
+                                onFocus={() => setRelayInputFocused(true)}
+                                onBlur={() => setRelayInputFocused(false)}
                                 placeholder="wss://relay.damus.io"
                                 className="appearance-none bg-slate-950/50 border border-slate-700/50 rounded-xl text-sm px-3.5 py-2.5 pr-9 outline-none focus:ring-2 focus:ring-indigo-500/50 w-full transition-all text-white"
                             />
-                            {relay.trim() !== '' && relay !== DEFAULT_RELAY && (
+                            {(relayInputFocused || (relay.trim() !== '' && relay !== DEFAULT_RELAY)) && (
                                 <button
                                     type="button"
-                                    onClick={() => setRelay('')}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                        setRelayInput('');
+                                        setRelay('');
+                                    }}
                                     className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg hover:bg-slate-800 text-slate-500 hover:text-slate-300 transition-colors"
                                     aria-label="Clear relay URL"
                                 >

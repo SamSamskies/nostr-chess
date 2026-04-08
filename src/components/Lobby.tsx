@@ -13,7 +13,7 @@ import { PlayerAvatar } from '@/components/PlayerProfile';
 import { useProfile } from '@/hooks/useProfile';
 import { Event } from 'nostr-tools';
 import { Plus, Play, User, Globe, X, ExternalLink } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 function lobbyStatusBadge(status: GameState['status']): { label: string; variant: 'warning' | 'success' | 'secondary' } {
     switch (status) {
@@ -66,7 +66,20 @@ function LobbyOutcomeDescription({ game, viewerPubkey }: { game: GameState; view
 
 export function Lobby() {
     const router = useRouter();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
     const { pubkey, pool, relay, effectiveRelay, login, setRelay } = useNostr();
+
+    const syncRelayQueryParam = (raw: string) => {
+        const params = new URLSearchParams(searchParams.toString());
+        if (raw === '') {
+            params.delete('relay');
+        } else {
+            params.set('relay', raw);
+        }
+        const qs = params.toString();
+        router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    };
     const { createGame, joinGame } = useChessGame();
     const [games, setGames] = useState<GameState[]>([]);
     const [relayInput, setRelayInput] = useState(relay);
@@ -183,6 +196,7 @@ export function Lobby() {
                                 onChange={(e) => {
                                     const v = e.target.value;
                                     setRelayInput(v);
+                                    syncRelayQueryParam(v);
                                     const t = v.trim();
                                     if (t === '' || isValidRelayUrl(t)) {
                                         setRelay(v);
@@ -200,6 +214,7 @@ export function Lobby() {
                                     onClick={() => {
                                         setRelayInput('');
                                         setRelay('');
+                                        syncRelayQueryParam('');
                                     }}
                                     className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg hover:bg-slate-800 text-slate-500 hover:text-slate-300 transition-colors"
                                     aria-label="Clear relay URL"

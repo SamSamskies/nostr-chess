@@ -57,8 +57,14 @@ export function NostrProvider({ children }: { children: ReactNode }) {
     const effectiveRelay = relay.trim() || DEFAULT_RELAY;
 
     useEffect(() => {
-        if (!searchParams.has('relay')) return;
-        setRelayState(relayFromUrlParams(searchParams));
+        if (!searchParams.has('relay')) {
+            setRelayState(relayFromUrlParams(searchParams));
+            return;
+        }
+        const candidate = (searchParams.get('relay') ?? '').trim();
+        if (isValidRelayUrl(candidate)) {
+            setRelayState(candidate);
+        }
     }, [searchParams]);
 
     useEffect(() => {

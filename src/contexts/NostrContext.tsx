@@ -4,15 +4,17 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import { SimplePool, Event } from 'nostr-tools';
 import { NostrExtension } from '@/lib/nostr';
 
+export const DEFAULT_RELAY = 'wss://relay.damus.io';
+
 interface NostrContextType {
     pubkey: string | null;
     pool: SimplePool;
-    relays: string[];
+    relay: string;
     login: () => Promise<void>;
     logout: () => void;
     isLoading: boolean;
     error: string | null;
-    addRelay: (url: string) => void;
+    setRelay: (url: string) => void;
 }
 
 const NostrContext = createContext<NostrContextType | undefined>(undefined);
@@ -20,13 +22,13 @@ const NostrContext = createContext<NostrContextType | undefined>(undefined);
 export function NostrProvider({ children }: { children: ReactNode }) {
     const [pubkey, setPubkey] = useState<string | null>(null);
     const [pool] = useState(() => new SimplePool());
-    const [relays, setRelays] = useState(['wss://relay.damus.io', 'wss://relay.snort.social', 'wss://nos.lol']);
+    const [relay, setRelayState] = useState(DEFAULT_RELAY);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const addRelay = (url: string) => {
-        if (!url.startsWith('wss://') && !url.startsWith('ws://')) return;
-        setRelays(prev => prev.includes(url) ? prev : [...prev, url]);
+    const setRelay = (url: string) => {
+        const t = url.trim();
+        setRelayState(t || DEFAULT_RELAY);
     };
 
     useEffect(() => {
@@ -66,12 +68,12 @@ export function NostrProvider({ children }: { children: ReactNode }) {
             value={{
                 pubkey,
                 pool,
-                relays,
+                relay,
                 login,
                 logout,
                 isLoading,
                 error,
-                addRelay,
+                setRelay,
             }}
         >
             {children}

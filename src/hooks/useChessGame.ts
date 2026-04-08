@@ -41,7 +41,7 @@ function chessFromPgnOrStart(pgn: string): Chess {
 }
 
 export function useChessGame(gameId?: string, initialRelay?: string) {
-    const { pubkey, pool, relays } = useNostr();
+    const { pubkey, pool, relay } = useNostr();
     const [pgnContent, setPgnContent] = useState('');
     const [remoteGameState, setRemoteGameState] = useState<Partial<GameState>>({});
 
@@ -50,11 +50,11 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
     const game = useMemo(() => chessFromPgnOrStart(pgnContent), [pgnContent]);
 
     const remoteGameStateRef = useRef<Partial<GameState>>({});
-    const relaysRef = useRef<string[]>(relays);
+    const relayRef = useRef(relay);
 
     useEffect(() => {
-        relaysRef.current = relays;
-    }, [relays]);
+        relayRef.current = relay;
+    }, [relay]);
 
     useEffect(() => {
         remoteGameStateRef.current = remoteGameState;
@@ -63,7 +63,9 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
     useEffect(() => {
         if (!gameId || !pool) return;
 
-        const subscriptionRelays = initialRelay ? [...new Set([initialRelay, ...relaysRef.current])] : relaysRef.current;
+        const subscriptionRelays = initialRelay
+            ? [...new Set([initialRelay, relayRef.current])]
+            : [relayRef.current];
         console.log('[useChessGame] Setting up subscription for game:', gameId, 'on relays:', subscriptionRelays);
 
         const onEvent = (event: Event) => {
@@ -187,7 +189,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
 
                         try {
                             const signedEvent = await window.nostr.signEvent(event);
-                            const publishRelays = r.relay ? [r.relay] : relays.length > 0 ? relays : ['wss://relay.damus.io'];
+                            const publishRelays = r.relay ? [r.relay] : [relay];
                             const pubs = pool.publish(publishRelays, signedEvent);
                             await Promise.allSettled(pubs);
                         } catch (publishError) {
@@ -206,7 +208,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
             }
             return false;
         },
-        [pubkey, gameId, pgnContent, pool, relays]
+        [pubkey, gameId, pgnContent, pool, relay]
     );
 
     const resetGame = useCallback(() => {
@@ -246,7 +248,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
         createGame: async (targetRelay?: string) => {
             if (!pubkey || !window.nostr) return null;
             const newId = crypto.randomUUID();
-            const selectedRelay = targetRelay || relays[0] || 'wss://relay.damus.io';
+            const selectedRelay = targetRelay || relay || 'wss://relay.damus.io';
             const body = createOpenGamePgn(pubkey, selectedRelay);
 
             const event: UnsignedEvent = {
@@ -280,7 +282,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
                 return false;
             }
 
-            const targetRelay = preferredRelay || relays[0] || 'wss://relay.damus.io';
+            const targetRelay = preferredRelay || relay || 'wss://relay.damus.io';
             const created_at = Math.floor(Date.now() / 1000);
 
             const c = chessFromPgnOrStart(pgnContent);

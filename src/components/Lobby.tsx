@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useNostr } from '@/contexts/NostrContext';
+import { useNostr, DEFAULT_RELAY } from '@/contexts/NostrContext';
 import { useChessGame, GameState } from '@/hooks/useChessGame';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter, CardDescription } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -15,14 +15,13 @@ import { useRouter } from 'next/navigation';
 
 export function Lobby() {
     const router = useRouter();
-    const { pubkey, pool, relays, login, addRelay } = useNostr();
+    const { pubkey, pool, relay, login, setRelay } = useNostr();
     const { createGame, joinGame } = useChessGame();
     const [games, setGames] = useState<GameState[]>([]);
-    const [selectedRelay, setSelectedRelay] = useState('wss://relay.damus.io');
 
     const fetchGames = async () => {
         try {
-            const events = await pool.querySync(relays, {
+            const events = await pool.querySync([relay], {
                 kinds: [CHESS_KIND],
                 limit: 50,
             });
@@ -73,11 +72,10 @@ export function Lobby() {
         fetchGames();
         const interval = setInterval(fetchGames, 10000);
         return () => clearInterval(interval);
-    }, [pool, relays]);
+    }, [pool, relay]);
 
     const handleCreateGame = async () => {
-        addRelay(selectedRelay);
-        const result = await createGame(selectedRelay);
+        const result = await createGame(relay);
         if (result) {
             router.push(`/game/${result.id}?relay=${encodeURIComponent(result.relay)}`);
         }
@@ -129,25 +127,21 @@ export function Lobby() {
                         <div className="relative group/input">
                             <input
                                 type="text"
-                                value={selectedRelay}
-                                onChange={(e) => setSelectedRelay(e.target.value)}
-                                list="relay-list"
+                                value={relay}
+                                onChange={(e) => setRelay(e.target.value)}
                                 placeholder="wss://relay.damus.io"
                                 className="appearance-none bg-slate-950/50 border border-slate-700/50 rounded-xl text-sm px-3.5 py-2.5 pr-9 outline-none focus:ring-2 focus:ring-indigo-500/50 w-full transition-all text-white"
                             />
-                            {selectedRelay && (
+                            {relay !== DEFAULT_RELAY && (
                                 <button
-                                    onClick={() => setSelectedRelay('')}
+                                    type="button"
+                                    onClick={() => setRelay('')}
                                     className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg hover:bg-slate-800 text-slate-500 hover:text-slate-300 transition-colors"
+                                    aria-label="Reset relay to default"
                                 >
                                     <X className="w-3.5 h-3.5" />
                                 </button>
                             )}
-                            <datalist id="relay-list">
-                                {relays.map(r => (
-                                    <option key={r} value={r} />
-                                ))}
-                            </datalist>
                         </div>
                     </div>
                     <div className="flex gap-2">

@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/Badge';
 import { CHESS_KIND } from '@/lib/nostr';
 import { PlayerAvatar } from '@/components/PlayerProfile';
 import { Event } from 'nostr-tools';
-import { Plus, Play, User, RefreshCw, Globe, X, ExternalLink } from 'lucide-react';
+import { Plus, Play, User, Globe, X, ExternalLink } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 export function Lobby() {
@@ -17,11 +17,9 @@ export function Lobby() {
     const { pubkey, pool, relays, login, addRelay } = useNostr();
     const { createGame, joinGame } = useChessGame();
     const [games, setGames] = useState<GameState[]>([]);
-    const [isRefreshing, setIsRefreshing] = useState(false);
     const [selectedRelay, setSelectedRelay] = useState('wss://relay.damus.io');
 
     const fetchGames = async () => {
-        setIsRefreshing(true);
         try {
             const events = await pool.querySync(relays, {
                 kinds: [CHESS_KIND],
@@ -58,8 +56,6 @@ export function Lobby() {
             setGames(Array.from(gameMap.values()).sort((a: any, b: any) => b.created_at - a.created_at));
         } catch (e) {
             console.error('Failed to fetch games:', e);
-        } finally {
-            setIsRefreshing(false);
         }
     };
 
@@ -145,9 +141,6 @@ export function Lobby() {
                         </div>
                     </div>
                     <div className="flex gap-2">
-                        <Button variant="outline" size="icon" onClick={fetchGames} isLoading={isRefreshing} className="h-11 w-11 border-slate-700 hover:bg-slate-800 rounded-xl">
-                            <RefreshCw className="w-4 h-4" />
-                        </Button>
                         <Button onClick={handleCreateGame} className="h-11 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl px-6">
                             <Plus className="w-4 h-4 mr-2" />
                             New Game

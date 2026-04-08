@@ -32,8 +32,13 @@ export function Header() {
                                     </div>
                                 </div>
                             )}
-                            <span className="text-sm text-slate-400 font-mono hidden md:inline">
-                                {pubkey.slice(0, 8)}...{pubkey.slice(-8)}
+                            <span
+                                className={`text-sm text-slate-400 hidden md:inline ${profile?.name?.trim() ? '' : 'font-mono'}`}
+                                title={profile?.name?.trim() ? pubkey : undefined}
+                            >
+                                {profile?.name?.trim()
+                                    ? profile.name.trim()
+                                    : `${pubkey.slice(0, 8)}...${pubkey.slice(-8)}`}
                             </span>
                             <Button variant="outline" size="sm" onClick={logout}>
                                 <LogOut className="w-4 h-4 mr-2" />

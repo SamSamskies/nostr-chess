@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/Badge';
 import { CHESS_KIND } from '@/lib/nostr';
 import { loadPgnFromNip64, resolveChessGameOutcome } from '@/lib/pgn';
 import { PlayerAvatar } from '@/components/PlayerProfile';
+import { useProfile } from '@/hooks/useProfile';
 import { Event } from 'nostr-tools';
 import { Plus, Play, User, Globe, X, ExternalLink } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -27,6 +28,39 @@ function lobbyStatusBadge(status: GameState['status']): { label: string; variant
         default:
             return { label: 'Live', variant: 'success' };
     }
+}
+
+function isFinishedStatus(status: GameState['status']): boolean {
+    return status === 'checkmate' || status === 'draw' || status === 'resigned';
+}
+
+function WinnerNameWins({ pubkey: winnerPubkey }: { pubkey: string }) {
+    const { profile } = useProfile(winnerPubkey);
+    const name = profile?.name ?? `${winnerPubkey.slice(0, 8)}...`;
+    return <span className="text-amber-400/95 font-semibold">{name} wins</span>;
+}
+
+function LobbyOutcomeDescription({ game, viewerPubkey }: { game: GameState; viewerPubkey?: string }) {
+    const finished = isFinishedStatus(game.status);
+    if (!finished) {
+        return (
+            <span className="text-slate-500">{game.white === viewerPubkey ? 'Your Game' : 'Join Match'}</span>
+        );
+    }
+    if (game.winner === 'draw') {
+        return <span className="text-amber-400/95 font-semibold">Draw</span>;
+    }
+    if (!game.winner) {
+        return <span className="text-slate-400">Game over</span>;
+    }
+    const winningPubkey = game.winner === 'w' ? game.white : game.black;
+    if (!winningPubkey) {
+        return <span className="text-slate-400">Game over</span>;
+    }
+    if (viewerPubkey && winningPubkey === viewerPubkey) {
+        return <span className="text-amber-400/95 font-semibold">You won</span>;
+    }
+    return <WinnerNameWins pubkey={winningPubkey} />;
 }
 
 export function Lobby() {
@@ -58,14 +92,15 @@ export function Lobby() {
 
                 const fen = chess.fen();
                 const hasBoth = p.length >= 2;
-                const status: GameState['status'] = resolveChessGameOutcome(chess, hasBoth).status;
+                const outcome = resolveChessGameOutcome(chess, hasBoth);
 
                 gameMap.set(d, {
                     id: d,
                     fen,
                     white: p[0],
                     black: p[1],
-                    status,
+                    status: outcome.status,
+                    winner: outcome.winner,
                     turn: 'w',
                     created_at: event.created_at,
                     relay,
@@ -175,6 +210,7 @@ export function Lobby() {
                 ) : (
                     games.map((game) => {
                         const { label: statusLabel, variant: statusVariant } = lobbyStatusBadge(game.status);
+                        const finished = isFinishedStatus(game.status);
                         return (
                         <Card key={game.id} className="bg-slate-900/40 border-slate-800 hover:border-indigo-500/50 transition-all cursor-pointer group hover:translate-y-[-2px] hover:shadow-xl hover:shadow-indigo-500/5" onClick={() => handleJoinGame(game)}>
                             <CardHeader className="pb-4">
@@ -185,8 +221,8 @@ export function Lobby() {
                                             <CardTitle className="text-sm font-mono text-slate-400 group-hover:text-white transition-colors">
                                                 #{game.id.slice(0, 8)}
                                             </CardTitle>
-                                            <CardDescription className="text-xs font-medium text-slate-500 line-clamp-1">
-                                                {game.white === pubkey ? 'Your Game' : 'Join Match'}
+                                            <CardDescription className="text-xs font-medium line-clamp-2">
+                                                <LobbyOutcomeDescription game={game} viewerPubkey={pubkey} />
                                             </CardDescription>
                                         </div>
                                     </div>
@@ -213,7 +249,7 @@ export function Lobby() {
                                         )}
                                     </div>
                                     <span className="text-xs font-bold text-slate-400">
-                                        {game.black ? 'Match Full' : 'Open for Play'}
+                                        {finished ? 'Finished' : game.black ? 'Match Full' : 'Open for Play'}
                                     </span>
                                 </div>
                             </CardContent>

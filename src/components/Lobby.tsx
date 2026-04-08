@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useNostr, DEFAULT_RELAY } from '@/contexts/NostrContext';
+import { isValidRelayUrl } from '@/lib/nostr';
 import { useChessGame, GameState } from '@/hooks/useChessGame';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter, CardDescription } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -68,6 +69,11 @@ export function Lobby() {
     const { pubkey, pool, relay, login, setRelay } = useNostr();
     const { createGame, joinGame } = useChessGame();
     const [games, setGames] = useState<GameState[]>([]);
+    const [relayInput, setRelayInput] = useState(relay);
+
+    useEffect(() => {
+        setRelayInput(relay);
+    }, [relay]);
 
     const fetchGames = async () => {
         try {
@@ -172,8 +178,15 @@ export function Lobby() {
                         <div className="relative group/input">
                             <input
                                 type="text"
-                                value={relay}
-                                onChange={(e) => setRelay(e.target.value)}
+                                value={relayInput}
+                                onChange={(e) => {
+                                    const v = e.target.value;
+                                    setRelayInput(v);
+                                    const t = v.trim();
+                                    if (t === '' || isValidRelayUrl(t)) {
+                                        setRelay(v);
+                                    }
+                                }}
                                 placeholder="wss://relay.damus.io"
                                 className="appearance-none bg-slate-950/50 border border-slate-700/50 rounded-xl text-sm px-3.5 py-2.5 pr-9 outline-none focus:ring-2 focus:ring-indigo-500/50 w-full transition-all text-white"
                             />

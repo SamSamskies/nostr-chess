@@ -168,7 +168,7 @@ export function Lobby() {
                             {games.length} Active
                         </Badge>
                     </h2>
-                    <p className="text-slate-500 mt-1 font-medium">Find or create a decentralized chess match.</p>
+                    <p className="text-slate-500 mt-1 font-medium">Find or create a chess match on Nostr.</p>
                 </div>
                 <div className="flex flex-wrap gap-4 items-end bg-slate-900/40 p-5 rounded-2xl border border-slate-800/50 backdrop-blur-sm w-full md:w-auto">
                     <div className="space-y-2 flex-1 min-w-[200px]">

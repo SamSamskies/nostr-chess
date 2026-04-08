@@ -13,6 +13,22 @@ import { Event } from 'nostr-tools';
 import { Plus, Play, User, Globe, X, ExternalLink } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
+function lobbyStatusBadge(status: GameState['status']): { label: string; variant: 'warning' | 'success' | 'secondary' } {
+    switch (status) {
+        case 'awaiting-player':
+            return { label: 'Waiting', variant: 'warning' };
+        case 'checkmate':
+            return { label: 'Checkmate', variant: 'secondary' };
+        case 'draw':
+            return { label: 'Draw', variant: 'secondary' };
+        case 'resigned':
+            return { label: 'Resigned', variant: 'secondary' };
+        case 'in-progress':
+        default:
+            return { label: 'Live', variant: 'success' };
+    }
+}
+
 export function Lobby() {
     const router = useRouter();
     const { pubkey, pool, relay, login, setRelay } = useNostr();
@@ -163,7 +179,9 @@ export function Lobby() {
                         <p className="text-sm text-slate-600 mt-1">Be the first to start a match!</p>
                     </div>
                 ) : (
-                    games.map((game) => (
+                    games.map((game) => {
+                        const { label: statusLabel, variant: statusVariant } = lobbyStatusBadge(game.status);
+                        return (
                         <Card key={game.id} className="bg-slate-900/40 border-slate-800 hover:border-indigo-500/50 transition-all cursor-pointer group hover:translate-y-[-2px] hover:shadow-xl hover:shadow-indigo-500/5" onClick={() => handleJoinGame(game)}>
                             <CardHeader className="pb-4">
                                 <div className="flex justify-between items-start">
@@ -178,8 +196,8 @@ export function Lobby() {
                                             </CardDescription>
                                         </div>
                                     </div>
-                                    <Badge variant={game.status === 'awaiting-player' ? 'warning' : 'success'} className="text-[10px] uppercase font-black tracking-wider">
-                                        {game.status === 'awaiting-player' ? 'Waiting' : 'Live'}
+                                    <Badge variant={statusVariant} className="text-[10px] uppercase font-black tracking-wider">
+                                        {statusLabel}
                                     </Badge>
                                 </div>
                             </CardHeader>
@@ -215,7 +233,8 @@ export function Lobby() {
                                 </Button>
                             </CardFooter>
                         </Card>
-                    ))
+                        );
+                    })
                 )}
             </div>
         </div>

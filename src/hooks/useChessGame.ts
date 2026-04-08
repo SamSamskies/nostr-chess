@@ -211,10 +211,6 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
         [pubkey, gameId, pgnContent, pool, relay]
     );
 
-    const resetGame = useCallback(() => {
-        setPgnContent('');
-    }, []);
-
     const fen = game.fen();
     const isCheckmate = game.isCheckmate();
     const isDraw = game.isDraw();
@@ -244,7 +240,6 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
         game,
         gameState,
         makeMove,
-        resetGame,
         createGame: async (targetRelay?: string) => {
             if (!pubkey || !window.nostr) return null;
             const newId = crypto.randomUUID();

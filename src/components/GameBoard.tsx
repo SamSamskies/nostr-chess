@@ -13,10 +13,12 @@ import { playMoveSound } from '@/lib/moveSound';
 import confetti from 'canvas-confetti';
 import { Trophy, AlertCircle } from 'lucide-react';
 import { User, Trophy as TrophyIcon } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRelay?: string }) {
+    const router = useRouter();
     const { pubkey, login } = useNostr();
-    const { game, gameState, makeMove, resetGame, joinGame } = useChessGame(gameId, initialRelay);
+    const { game, gameState, makeMove, joinGame } = useChessGame(gameId, initialRelay);
     const [showGameOver, setShowGameOver] = useState(false);
     const [moveFrom, setMoveFrom] = useState<Square | null>(null);
     const prevMoveCountRef = useRef<number | null>(null);
@@ -257,7 +259,7 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
                                     </p>
                                     <Button
                                         size="lg"
-                                        onClick={resetGame}
+                                        onClick={() => router.push('/')}
                                         className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-lg shadow-indigo-600/20"
                                     >
                                         Back to Lobby

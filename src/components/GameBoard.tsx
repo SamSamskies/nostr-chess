@@ -6,7 +6,8 @@ import { useNostr } from '@/contexts/NostrContext';
 import { PlayerProfile } from '@/components/PlayerProfile';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { useEffect, useState, useMemo, type CSSProperties } from 'react';
+import { useEffect, useState, useMemo, useRef, type CSSProperties } from 'react';
+import { playMoveSound } from '@/lib/moveSound';
 import confetti from 'canvas-confetti';
 import { Trophy, AlertCircle } from 'lucide-react';
 import { User, Trophy as TrophyIcon } from 'lucide-react';
@@ -15,6 +16,7 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
     const { pubkey, login } = useNostr();
     const { game, gameState, makeMove, resetGame, joinGame } = useChessGame(gameId, initialRelay);
     const [showGameOver, setShowGameOver] = useState(false);
+    const prevMoveCountRef = useRef<number | null>(null);
 
     const isMyTurn = useMemo(() => {
         return (pubkey?.toLowerCase() === gameState.white?.toLowerCase() && gameState.turn === 'w') ||
@@ -42,6 +44,18 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
             [last.to]: highlight,
         };
     }, [game]);
+
+    useEffect(() => {
+        const n = game.history().length;
+        if (prevMoveCountRef.current === null) {
+            prevMoveCountRef.current = n;
+            return;
+        }
+        if (n > prevMoveCountRef.current) {
+            playMoveSound();
+        }
+        prevMoveCountRef.current = n;
+    }, [game, gameState.fen]);
 
     useEffect(() => {
         if (gameState.winner) {

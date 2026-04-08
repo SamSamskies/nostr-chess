@@ -1,8 +1,17 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { SimplePool, Event } from 'nostr-tools';
-import { NostrExtension } from '@/lib/nostr';
+import { useSearchParams } from 'next/navigation';
+import { SimplePool } from 'nostr-tools';
+import { isValidRelayUrl } from '@/lib/nostr';
+
+function readStoredPubkey(): string | null {
+    try {
+        return localStorage.getItem('nostr_pubkey');
+    } catch {
+        return null;
+    }
+}
 
 export const DEFAULT_RELAY = 'wss://relay.damus.io';
 
@@ -20,11 +29,25 @@ interface NostrContextType {
 
 const NostrContext = createContext<NostrContextType | undefined>(undefined);
 
+/** Resolve default relay from `relay` query param synchronously (no useEffect ordering issues). */
+function relayFromUrlParams(params: Pick<URLSearchParams, 'has' | 'get'>): string {
+    if (!params.has('relay')) return DEFAULT_RELAY;
+    const candidate = (params.get('relay') ?? '').trim();
+    if (isValidRelayUrl(candidate)) return candidate;
+    return DEFAULT_RELAY;
+}
+
+/**
+ * Only mount via `next/dynamic` with `{ ssr: false }` so this never SSRs:
+ * we read localStorage on first paint without hydration mismatch vs server HTML.
+ */
 export function NostrProvider({ children }: { children: ReactNode }) {
-    const [pubkey, setPubkey] = useState<string | null>(null);
+    const searchParams = useSearchParams();
+    const [pubkey, setPubkey] = useState<string | null>(() => readStoredPubkey());
     const [pool] = useState(() => new SimplePool());
-    const [relay, setRelayState] = useState(DEFAULT_RELAY);
-    const [isLoading, setIsLoading] = useState(true);
+    /** Use Next searchParams only so SSR and first client render match (avoid hydration mismatch). */
+    const [relay, setRelayState] = useState(() => relayFromUrlParams(searchParams));
+    const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const setRelay = (url: string) => {
@@ -34,12 +57,18 @@ export function NostrProvider({ children }: { children: ReactNode }) {
     const effectiveRelay = relay.trim() || DEFAULT_RELAY;
 
     useEffect(() => {
-        // Check if previously logged in (optional, but good for UX)
-        const savedPubkey = localStorage.getItem('nostr_pubkey');
-        if (savedPubkey) {
-            setPubkey(savedPubkey);
-        }
-        setIsLoading(false);
+        if (!searchParams.has('relay')) return;
+        setRelayState(relayFromUrlParams(searchParams));
+    }, [searchParams]);
+
+    useEffect(() => {
+        const onStorage = (e: StorageEvent) => {
+            if (e.key === 'nostr_pubkey') {
+                setPubkey(e.newValue);
+            }
+        };
+        window.addEventListener('storage', onStorage);
+        return () => window.removeEventListener('storage', onStorage);
     }, []);
 
     const login = async () => {
@@ -50,8 +79,8 @@ export function NostrProvider({ children }: { children: ReactNode }) {
                 throw new Error('Nostr extension (NIP-07) not found. Please install an extension like Alby or Nos2x.');
             }
             const pk = await window.nostr.getPublicKey();
-            setPubkey(pk);
             localStorage.setItem('nostr_pubkey', pk);
+            setPubkey(pk);
         } catch (err: any) {
             setError(err.message || 'Failed to login with Nostr');
             console.error('Nostr login error:', err);
@@ -61,8 +90,8 @@ export function NostrProvider({ children }: { children: ReactNode }) {
     };
 
     const logout = () => {
-        setPubkey(null);
         localStorage.removeItem('nostr_pubkey');
+        setPubkey(null);
     };
 
     return (

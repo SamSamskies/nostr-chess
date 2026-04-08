@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -18,7 +19,7 @@ export const metadata: Metadata = {
 };
 
 import { Header } from "@/components/Header";
-import { NostrProvider } from "@/contexts/NostrContext";
+import { NostrProviderGate } from "@/components/NostrProviderGate";
 
 export default function RootLayout({
   children,
@@ -30,12 +31,14 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-950 text-slate-50 min-h-screen flex flex-col`}
       >
-        <NostrProvider>
-          <Header />
-          <main className="flex-1">
-            {children}
-          </main>
-        </NostrProvider>
+        <Suspense fallback={null}>
+          <NostrProviderGate>
+            <Header />
+            <main className="flex-1">
+              {children}
+            </main>
+          </NostrProviderGate>
+        </Suspense>
       </body>
     </html>
   );

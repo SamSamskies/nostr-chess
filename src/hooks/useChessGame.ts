@@ -4,7 +4,13 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Chess } from 'chess.js';
 import { useNostr } from '@/contexts/NostrContext';
 import { CHESS_KIND } from '@/lib/nostr';
-import { createOpenGamePgn, exportNip64Pgn, loadPgnFromNip64 } from '@/lib/pgn';
+import {
+    createOpenGamePgn,
+    exportNip64Pgn,
+    exportPgnAfterResignation,
+    loadPgnFromNip64,
+    resolveChessGameOutcome,
+} from '@/lib/pgn';
 import { Event, UnsignedEvent } from 'nostr-tools';
 
 export interface GameState {
@@ -21,17 +27,6 @@ export interface GameState {
 
 function isPubkeyTag(s: string | undefined): boolean {
     return !!s && s.length >= 32 && !s.startsWith('Player');
-}
-
-function deriveStatus(
-    chess: Chess,
-    whitePk: string | undefined,
-    blackPk: string | undefined
-): GameState['status'] {
-    if (!isPubkeyTag(whitePk) || !isPubkeyTag(blackPk)) return 'awaiting-player';
-    if (chess.isCheckmate()) return 'checkmate';
-    if (chess.isDraw()) return 'draw';
-    return 'in-progress';
 }
 
 function chessFromPgnOrStart(pgn: string): Chess {
@@ -93,12 +88,10 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
 
             const whitePk = p[0];
             const blackPk = p[1];
-            const status = deriveStatus(chess, whitePk, blackPk);
 
             setRemoteGameState(prev => ({
                 white: whitePk || prev.white,
                 black: blackPk || prev.black,
-                status,
                 relay: relay || prev.relay,
                 created_at: eventTime,
             }));
@@ -169,7 +162,6 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
                     setPgnContent(body);
 
                     if (pubkey && window.nostr && isPubkeyTag(r.white) && isPubkeyTag(r.black) && gameId) {
-                        const nextStatus = deriveStatus(gameCopy, r.white, r.black);
                         const eventTimestamp = Math.floor(Date.now() / 1000);
                         lastEventTimestampRef.current = eventTimestamp;
 
@@ -195,11 +187,6 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
                         } catch (publishError) {
                             console.error('[useChessGame] Failed to publish move:', publishError);
                         }
-
-                        setRemoteGameState(prev => ({
-                            ...prev,
-                            status: nextStatus,
-                        }));
                     }
                     return true;
                 }
@@ -211,28 +198,67 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
         [pubkey, gameId, pgnContent, pool, relay]
     );
 
+    const resign = useCallback(async () => {
+        try {
+            const r = remoteGameStateRef.current;
+            if (!pubkey || !window.nostr || !gameId) return false;
+            if (!isPubkeyTag(r.white) || !isPubkeyTag(r.black)) return false;
+
+            const gameCopy = chessFromPgnOrStart(pgnContent);
+            if (gameCopy.isCheckmate() || gameCopy.isDraw()) return false;
+
+            const iAmWhite = pubkey.toLowerCase() === r.white!.toLowerCase();
+            const iAmBlack = pubkey.toLowerCase() === r.black!.toLowerCase();
+            if (!iAmWhite && !iAmBlack) return false;
+
+            gameCopy.setHeader('White', r.white!);
+            gameCopy.setHeader('Black', r.black!);
+            const resignedColor = iAmWhite ? 'w' : 'b';
+            const body = exportPgnAfterResignation(gameCopy, resignedColor);
+            setPgnContent(body);
+
+            const eventTimestamp = Math.floor(Date.now() / 1000);
+            lastEventTimestampRef.current = eventTimestamp;
+
+            const event: UnsignedEvent = {
+                kind: CHESS_KIND,
+                pubkey: pubkey,
+                created_at: eventTimestamp,
+                tags: [
+                    ['d', gameId],
+                    ['p', r.white!],
+                    ['p', r.black!],
+                    ['alt', `Nostr Chess #${gameId.slice(0, 8)}`],
+                    ...(r.relay ? [['relay', r.relay]] : []),
+                ],
+                content: body,
+            };
+
+            const signedEvent = await window.nostr.signEvent(event);
+            const publishRelays = r.relay ? [r.relay] : [relay];
+            const pubs = pool.publish(publishRelays, signedEvent);
+            await Promise.allSettled(pubs);
+            return true;
+        } catch (e) {
+            console.error('[useChessGame.resign]', e);
+            return false;
+        }
+    }, [pubkey, gameId, pgnContent, pool, relay]);
+
     const fen = game.fen();
-    const isCheckmate = game.isCheckmate();
-    const isDraw = game.isDraw();
-
-    let winner: 'w' | 'b' | 'draw' | undefined = undefined;
-    if (isCheckmate) {
-        winner = game.turn() === 'w' ? 'b' : 'w';
-    } else if (isDraw) {
-        winner = 'draw';
-    }
-
     const whiteDisplay = remoteGameState.white || 'Player 1';
     const blackDisplay = remoteGameState.black || 'Player 2';
+    const hasBothPlayers = isPubkeyTag(remoteGameState.white) && isPubkeyTag(remoteGameState.black);
+    const outcome = resolveChessGameOutcome(game, hasBothPlayers);
 
     const gameState: GameState = {
         id: gameId || 'local-game',
         fen,
         white: whiteDisplay,
         black: blackDisplay,
-        status: isCheckmate ? 'checkmate' : isDraw ? 'draw' : remoteGameState.status || 'in-progress',
+        status: outcome.status,
         turn: game.turn(),
-        winner,
+        winner: outcome.winner,
         relay: remoteGameState.relay,
     };
 
@@ -240,6 +266,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
         game,
         gameState,
         makeMove,
+        resign,
         createGame: async (targetRelay?: string) => {
             if (!pubkey || !window.nostr) return null;
             const newId = crypto.randomUUID();

@@ -7,7 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter, CardDescription }
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { CHESS_KIND } from '@/lib/nostr';
-import { loadPgnFromNip64 } from '@/lib/pgn';
+import { loadPgnFromNip64, resolveChessGameOutcome } from '@/lib/pgn';
 import { PlayerAvatar } from '@/components/PlayerProfile';
 import { Event } from 'nostr-tools';
 import { Plus, Play, User, Globe, X, ExternalLink } from 'lucide-react';
@@ -58,13 +58,7 @@ export function Lobby() {
 
                 const fen = chess.fen();
                 const hasBoth = p.length >= 2;
-                const status: GameState['status'] = !hasBoth
-                    ? 'awaiting-player'
-                    : chess.isCheckmate()
-                      ? 'checkmate'
-                      : chess.isDraw()
-                        ? 'draw'
-                        : 'in-progress';
+                const status: GameState['status'] = resolveChessGameOutcome(chess, hasBoth).status;
 
                 gameMap.set(d, {
                     id: d,

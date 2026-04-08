@@ -6,20 +6,22 @@ import { useNostr } from '@/contexts/NostrContext';
 import { PlayerProfile } from '@/components/PlayerProfile';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useEffect, useState, useMemo, useRef, useCallback, type CSSProperties } from 'react';
 import type { Square } from 'chess.js';
 import type { SquareHandlerArgs } from 'react-chessboard';
 import { playMoveSound } from '@/lib/moveSound';
 import confetti from 'canvas-confetti';
-import { Trophy, AlertCircle } from 'lucide-react';
-import { User, Trophy as TrophyIcon } from 'lucide-react';
+import { Trophy as TrophyIcon, AlertCircle, Flag } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRelay?: string }) {
     const router = useRouter();
     const { pubkey, login } = useNostr();
-    const { game, gameState, makeMove, joinGame } = useChessGame(gameId, initialRelay);
+    const { game, gameState, makeMove, joinGame, resign } = useChessGame(gameId, initialRelay);
     const [showGameOver, setShowGameOver] = useState(false);
+    const [resignDialogOpen, setResignDialogOpen] = useState(false);
+    const [resignLoading, setResignLoading] = useState(false);
     const [moveFrom, setMoveFrom] = useState<Square | null>(null);
     const prevMoveCountRef = useRef<number | null>(null);
 
@@ -174,12 +176,28 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
         ? "by Checkmate"
         : gameState.status === 'draw'
             ? "Game Drawn"
-            : "";
+            : gameState.status === 'resigned'
+                ? "by Resignation"
+                : "";
+
+    const handleResignClick = () => {
+        if (!gameState.winner && amIPlaying) setResignDialogOpen(true);
+    };
+
+    const handleConfirmResign = async () => {
+        setResignLoading(true);
+        try {
+            const ok = await resign();
+            if (ok) setResignDialogOpen(false);
+        } finally {
+            setResignLoading(false);
+        }
+    };
 
     return (
         <div className="relative">
             <Card className="max-w-2xl mx-auto overflow-hidden border-slate-800 bg-slate-900/40 backdrop-blur-sm shadow-2xl">
-                <CardHeader className="flex flex-row items-center justify-between border-b border-slate-800 pb-4">
+                <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-slate-800 pb-4">
                     <div>
                         <CardTitle className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
                             Nostr Chess
@@ -189,6 +207,18 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
                             {gameState.status.replace('-', ' ')}
                         </p>
                     </div>
+                    {amIPlaying && !gameState.winner && gameState.status === 'in-progress' && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={handleResignClick}
+                            className="shrink-0 border-rose-900/80 text-rose-300 hover:bg-rose-950/80 hover:text-rose-200"
+                        >
+                            <Flag className="w-4 h-4 mr-1.5" aria-hidden />
+                            Resign
+                        </Button>
+                    )}
                 </CardHeader>
                 <CardContent className="p-6 bg-slate-950/30">
 
@@ -290,6 +320,23 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
 
                 </CardContent>
             </Card>
+
+            <ConfirmDialog
+                open={resignDialogOpen}
+                onOpenChange={setResignDialogOpen}
+                icon={
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-rose-500/15 ring-1 ring-rose-500/25">
+                        <Flag className="h-7 w-7 text-rose-400" strokeWidth={2} aria-hidden />
+                    </div>
+                }
+                title="Resign this game?"
+                description="Your opponent wins and the result is sent to the relay. This cannot be undone."
+                confirmLabel="Yes, resign"
+                cancelLabel="Keep playing"
+                variant="destructive"
+                isLoading={resignLoading}
+                onConfirm={handleConfirmResign}
+            />
         </div>
     );
 }

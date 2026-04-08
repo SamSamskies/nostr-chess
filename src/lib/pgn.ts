@@ -48,3 +48,37 @@ export function exportNip64Pgn(chess: Chess): string {
     setResultHeaderFromPosition(chess);
     return chess.pgn({ maxWidth: 0 });
 }
+
+export type ChessTerminalStatus =
+    | 'awaiting-player'
+    | 'in-progress'
+    | 'checkmate'
+    | 'draw'
+    | 'resigned';
+
+/**
+ * Derive live game status and winner from the current position and PGN headers.
+ * Decisive Result headers (1-0 / 0-1) without checkmate on the board are treated as resignation.
+ */
+export function resolveChessGameOutcome(
+    chess: Chess,
+    hasBothPlayers: boolean
+): { status: ChessTerminalStatus; winner?: 'w' | 'b' | 'draw' } {
+    if (!hasBothPlayers) return { status: 'awaiting-player' };
+    if (chess.isCheckmate()) {
+        return { status: 'checkmate', winner: chess.turn() === 'w' ? 'b' : 'w' };
+    }
+    if (chess.isDraw()) {
+        return { status: 'draw', winner: 'draw' };
+    }
+    const r = chess.getHeaders()['Result'];
+    if (r === '1-0') return { status: 'resigned', winner: 'w' };
+    if (r === '0-1') return { status: 'resigned', winner: 'b' };
+    return { status: 'in-progress' };
+}
+
+/** End the game by resignation: sets [Result] without changing the position. */
+export function exportPgnAfterResignation(chess: Chess, resignedColor: 'w' | 'b'): string {
+    chess.setHeader('Result', resignedColor === 'w' ? '0-1' : '1-0');
+    return chess.pgn({ maxWidth: 0 });
+}

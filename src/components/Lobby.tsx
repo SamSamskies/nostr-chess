@@ -139,6 +139,8 @@ export function Lobby() {
         return () => clearInterval(interval);
     }, [pool, effectiveRelay]);
 
+    const activeGamesCount = games.filter((g) => !isFinishedStatus(g.status)).length;
+
     const handleCreateGame = async () => {
         const result = await createGame(effectiveRelay);
         if (result) {
@@ -178,7 +180,7 @@ export function Lobby() {
                     <h2 className="text-3xl font-black text-white flex items-center gap-3 tracking-tight">
                         Lobby
                         <Badge variant="secondary" className="bg-slate-800 text-slate-300 font-mono text-xs px-2.5">
-                            {games.length} Active
+                            {activeGamesCount} Active
                         </Badge>
                     </h2>
                     <p className="text-slate-500 mt-1 font-medium">Find or create a chess match on Nostr.</p>

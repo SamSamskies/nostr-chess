@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useNostr } from '@/contexts/NostrContext';
 import { CHESS_KIND } from '@/lib/nostr';
+import { loadPgnFromNip64 } from '@/lib/pgn';
 import { INITIAL_ELO, processGameResult } from '@/lib/elo';
 
 export interface Profile {
@@ -98,22 +99,29 @@ export function useProfile(pubkey?: string | null) {
                 let gamesPlayed = 0;
 
                 sortedGames.forEach(game => {
-                    const status = game.tags.find(t => t[0] === 'status')?.[1];
-                    const pTags = game.tags.filter(t => t[0] === 'p').map(t => t[1]);
+                    const pTags = game.tags.filter(t => t[0] === 'p').map(t => t[1]).filter(Boolean);
                     const white = pTags[0];
                     const black = pTags[1];
 
-                    if (!black || !status || status === 'in-progress' || status === 'awaiting-player') return;
+                    if (!white || !black) return;
+
+                    const chess = loadPgnFromNip64(game.content);
+                    if (!chess) return;
+
+                    const pgnResult = chess.getHeaders()['Result'];
+                    if (!pgnResult || pgnResult === '*') return;
 
                     gamesPlayed++;
-                    const fen = game.tags.find(t => t[0] === 'fen')?.[1];
-                    const turn = fen ? fen.split(' ')[1] : 'w';
 
                     let result: 'white' | 'black' | 'draw' = 'draw';
-                    if (status === 'checkmate') {
-                        result = turn === 'w' ? 'black' : 'white';
-                    } else if (status === 'resigned') {
-                        result = turn === 'w' ? 'black' : 'white';
+                    if (pgnResult === '1/2-1/2') {
+                        result = 'draw';
+                    } else if (pgnResult === '1-0') {
+                        result = 'white';
+                    } else if (pgnResult === '0-1') {
+                        result = 'black';
+                    } else {
+                        return;
                     }
 
                     if (result === 'draw') draws++;

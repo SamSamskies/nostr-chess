@@ -12,4 +12,5 @@ declare global {
     }
 }
 
-export const CHESS_KIND = 3064;
+/** NIP-64: Chess (Portable Game Notation) */
+export const CHESS_KIND = 64;

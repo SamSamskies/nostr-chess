@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter, CardDescription }
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { CHESS_KIND } from '@/lib/nostr';
+import { loadPgnFromNip64 } from '@/lib/pgn';
 import { PlayerAvatar } from '@/components/PlayerProfile';
 import { Event } from 'nostr-tools';
 import { Plus, Play, User, Globe, X, ExternalLink } from 'lucide-react';
@@ -34,23 +35,32 @@ export function Lobby() {
                 const existing = gameMap.get(d);
                 if (existing && (event.created_at <= (existing as any).created_at)) return;
 
-                const p = event.tags.filter(t => t[0] === 'p').map(t => t[1]);
-                const fen = event.tags.find(t => t[0] === 'fen')?.[1];
-                const status = event.tags.find(t => t[0] === 'status')?.[1] as GameState['status'];
+                const p = event.tags.filter(t => t[0] === 'p').map(t => t[1]).filter(Boolean);
                 const relay = event.tags.find(t => t[0] === 'relay')?.[1];
 
-                if (fen) {
-                    gameMap.set(d, {
-                        id: d,
-                        fen,
-                        white: p[0],
-                        black: p[1],
-                        status: status || 'in-progress',
-                        turn: 'w',
-                        created_at: event.created_at,
-                        relay,
-                    } as any);
-                }
+                const chess = loadPgnFromNip64(event.content);
+                if (!chess) return;
+
+                const fen = chess.fen();
+                const hasBoth = p.length >= 2;
+                const status: GameState['status'] = !hasBoth
+                    ? 'awaiting-player'
+                    : chess.isCheckmate()
+                      ? 'checkmate'
+                      : chess.isDraw()
+                        ? 'draw'
+                        : 'in-progress';
+
+                gameMap.set(d, {
+                    id: d,
+                    fen,
+                    white: p[0],
+                    black: p[1],
+                    status,
+                    turn: 'w',
+                    created_at: event.created_at,
+                    relay,
+                } as any);
             });
 
             setGames(Array.from(gameMap.values()).sort((a: any, b: any) => b.created_at - a.created_at));

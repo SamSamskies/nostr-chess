@@ -11,6 +11,7 @@ import { useEffect, useState, useMemo, useRef, useCallback, type CSSProperties }
 import type { Square } from 'chess.js';
 import type { SquareHandlerArgs } from 'react-chessboard';
 import { playMoveSound } from '@/lib/moveSound';
+import { getMaterialByColor } from '@/lib/material';
 import confetti from 'canvas-confetti';
 import { Trophy as TrophyIcon, AlertCircle, Flag } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -41,6 +42,10 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
 
     const amIBlack = useMemo(() => pubkey?.toLowerCase() === gameState.black?.toLowerCase(), [pubkey, gameState.black]);
     const boardOrientation = amIBlack ? 'black' : 'white';
+
+    const material = useMemo(() => getMaterialByColor(game), [game]);
+    const whiteMaterialPlus = material.white > material.black ? material.white - material.black : undefined;
+    const blackMaterialPlus = material.black > material.white ? material.black - material.white : undefined;
 
     const lastMoveSquareStyles = useMemo(() => {
         const verbose = game.history({ verbose: true });
@@ -231,6 +236,7 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
                                 isWinner={gameState.winner === 'w'}
                                 side="white"
                                 label={amIPlaying ? 'Opponent' : 'White'}
+                                materialPlus={whiteMaterialPlus}
                             />
                         </div>
                     ) : (
@@ -241,6 +247,7 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
                                 isWinner={gameState.winner === 'b'}
                                 side="black"
                                 label={amIPlaying ? 'Opponent' : 'Black'}
+                                materialPlus={blackMaterialPlus}
                             />
                             {!amIPlaying && (!gameState.black || gameState.black === 'Player 2') && (
                                 <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 rounded-xl backdrop-blur-[2px] opacity-100 transition-opacity">
@@ -307,6 +314,7 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
                             isWinner={gameState.winner === 'b'}
                             side="black"
                             label={amIPlaying ? 'You' : 'Black'}
+                            materialPlus={blackMaterialPlus}
                         />
                     ) : (
                         <PlayerProfile
@@ -315,6 +323,7 @@ export function GameBoard({ gameId, initialRelay }: { gameId: string, initialRel
                             isWinner={gameState.winner === 'w'}
                             side="white"
                             label={amIPlaying ? 'You' : 'White'}
+                            materialPlus={whiteMaterialPlus}
                         />
                     )}
 

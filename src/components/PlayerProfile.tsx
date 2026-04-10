@@ -11,9 +11,11 @@ interface PlayerProfileProps {
     isWinner?: boolean;
     side: 'white' | 'black';
     label?: string;
+    /** When this side leads in material (pawn = 1), show +N next to their name. */
+    materialPlus?: number;
 }
 
-export function PlayerProfile({ pubkey, isTurn, isWinner, side, label }: PlayerProfileProps) {
+export function PlayerProfile({ pubkey, isTurn, isWinner, side, label, materialPlus }: PlayerProfileProps) {
     // Don't fetch profile for placeholder strings
     const isValidPubkey = pubkey && pubkey !== 'Player 1' && pubkey !== 'Player 2' && pubkey.length > 20;
     const { profile, isLoading } = useProfile(isValidPubkey ? pubkey : null);
@@ -72,6 +74,14 @@ export function PlayerProfile({ pubkey, isTurn, isWinner, side, label }: PlayerP
                     <span className={`font-bold truncate text-base tracking-tight ${isTurn ? 'text-white' : 'text-slate-400'}`}>
                         {displayName}
                     </span>
+                    {materialPlus !== undefined && materialPlus > 0 && (
+                        <span
+                            className="shrink-0 text-[10px] font-bold tabular-nums text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/25"
+                            title="Material advantage (pawn = 1)"
+                        >
+                            +{materialPlus}
+                        </span>
+                    )}
                     {isTurn && !isWinner && (
                         <span className="text-[9px] uppercase font-black tracking-widest text-indigo-400 bg-indigo-510 px-1.5 py-0.5 rounded leading-none">
                             Moving

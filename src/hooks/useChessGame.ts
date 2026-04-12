@@ -51,6 +51,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
         relayRef.current = effectiveRelay;
     }, [effectiveRelay]);
 
+    /** Keep in sync with `remoteGameState` for makeMove/resign; also updated synchronously on setState to avoid a frame where the ref lags (useEffect runs after paint). */
     useEffect(() => {
         remoteGameStateRef.current = remoteGameState;
     }, [remoteGameState]);
@@ -89,12 +90,16 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
             const whitePk = p[0];
             const blackPk = p[1];
 
-            setRemoteGameState(prev => ({
-                white: whitePk || prev.white,
-                black: blackPk || prev.black,
-                relay: relay || prev.relay,
-                created_at: eventTime,
-            }));
+            setRemoteGameState(prev => {
+                const next = {
+                    white: whitePk || prev.white,
+                    black: blackPk || prev.black,
+                    relay: relay || prev.relay,
+                    created_at: eventTime,
+                };
+                remoteGameStateRef.current = next;
+                return next;
+            });
         };
 
         const fetchInitial = async () => {
@@ -327,13 +332,15 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
                 content: body,
             };
 
-            setRemoteGameState({
+            const joined: Partial<GameState> = {
                 white: opponent,
                 black: pubkey,
                 status: 'in-progress',
                 relay: targetRelay,
                 created_at,
-            });
+            };
+            remoteGameStateRef.current = joined;
+            setRemoteGameState(joined);
             setPgnContent(body);
 
             try {

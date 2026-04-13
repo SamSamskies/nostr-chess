@@ -29,6 +29,52 @@ function isPubkeyTag(s: string | undefined): boolean {
     return !!s && s.length >= 32 && !s.startsWith('Player');
 }
 
+/** Prefer remote state; fall back to PGN headers so we can publish if the ref lags behind loaded PGN. */
+function resolvePlayerPubkeys(
+    r: Partial<GameState>,
+    chess: Chess
+): { white?: string; black?: string } {
+    const h = chess.getHeaders();
+    const white = isPubkeyTag(r.white) ? r.white : isPubkeyTag(h.White) ? h.White : undefined;
+    const black = isPubkeyTag(r.black) ? r.black : isPubkeyTag(h.Black) ? h.Black : undefined;
+    return { white, black };
+}
+
+/** Same relay set as the game subscription: game tag + link relay + app default (deduped). */
+function buildPublishRelayUrls(
+    gameRelay: string | undefined,
+    initialRelay: string | undefined,
+    fallbackRelay: string
+): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const u of [gameRelay, initialRelay, fallbackRelay]) {
+        const t = u?.trim();
+        if (!t || seen.has(t)) continue;
+        seen.add(t);
+        out.push(t);
+    }
+    return out;
+}
+
+async function publishAndLogFailures(
+    pool: { publish: (relays: string[], event: Event) => Promise<unknown>[] },
+    relays: string[],
+    signedEvent: Event,
+    label: string
+): Promise<void> {
+    if (relays.length === 0) {
+        console.error(`[useChessGame] ${label}: no relays to publish to`);
+        return;
+    }
+    const pubs = pool.publish(relays, signedEvent);
+    const results = await Promise.allSettled(pubs);
+    const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (failed.length > 0) {
+        console.error(`[useChessGame] ${label}: publish failed on ${failed.length}/${results.length} relay(s)`, failed.map(f => f.reason));
+    }
+}
+
 function chessFromPgnOrStart(pgn: string): Chess {
     if (!pgn.trim()) return new Chess();
     const loaded = loadPgnFromNip64(pgn);
@@ -46,10 +92,21 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
 
     const remoteGameStateRef = useRef<Partial<GameState>>({});
     const relayRef = useRef(effectiveRelay);
+    const initialRelayRef = useRef(initialRelay);
+    /** Latest PGN for move/resign (updated synchronously with setPgnContent) so makeMove never applies to a stale board. */
+    const pgnContentRef = useRef('');
 
     useEffect(() => {
         relayRef.current = effectiveRelay;
     }, [effectiveRelay]);
+
+    useEffect(() => {
+        initialRelayRef.current = initialRelay;
+    }, [initialRelay]);
+
+    useEffect(() => {
+        pgnContentRef.current = pgnContent;
+    }, [pgnContent]);
 
     /** Keep in sync with `remoteGameState` for makeMove/resign; also updated synchronously on setState to avoid a frame where the ref lags (useEffect runs after paint). */
     useEffect(() => {
@@ -86,6 +143,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
             lastEventTimestampRef.current = eventTime;
 
             setPgnContent(event.content);
+            pgnContentRef.current = event.content;
 
             const whitePk = p[0];
             const blackPk = p[1];
@@ -151,22 +209,24 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
     const makeMove = useCallback(
         async (move: string | { from: string; to: string; promotion?: string }) => {
             try {
-                const gameCopy = chessFromPgnOrStart(pgnContent);
+                const gameCopy = chessFromPgnOrStart(pgnContentRef.current);
                 const result = gameCopy.move(move);
 
                 if (result) {
                     console.log('[useChessGame] Move made locally:', result.san);
 
                     const r = remoteGameStateRef.current;
-                    if (isPubkeyTag(r.white) && isPubkeyTag(r.black)) {
-                        gameCopy.setHeader('White', r.white!);
-                        gameCopy.setHeader('Black', r.black!);
+                    const rp = resolvePlayerPubkeys(r, gameCopy);
+                    if (isPubkeyTag(rp.white) && isPubkeyTag(rp.black)) {
+                        gameCopy.setHeader('White', rp.white!);
+                        gameCopy.setHeader('Black', rp.black!);
                     }
 
                     const body = exportNip64Pgn(gameCopy);
                     setPgnContent(body);
+                    pgnContentRef.current = body;
 
-                    if (pubkey && window.nostr && isPubkeyTag(r.white) && isPubkeyTag(r.black) && gameId) {
+                    if (pubkey && window.nostr && isPubkeyTag(rp.white) && isPubkeyTag(rp.black) && gameId) {
                         const eventTimestamp = Math.floor(Date.now() / 1000);
                         lastEventTimestampRef.current = eventTimestamp;
 
@@ -176,8 +236,8 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
                             created_at: eventTimestamp,
                             tags: [
                                 ['d', gameId],
-                                ['p', r.white!],
-                                ['p', r.black!],
+                                ['p', rp.white!],
+                                ['p', rp.black!],
                                 ['alt', `Nostr Chess #${gameId.slice(0, 8)}`],
                                 ...(r.relay ? [['relay', r.relay]] : []),
                             ],
@@ -186,9 +246,12 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
 
                         try {
                             const signedEvent = await window.nostr.signEvent(event);
-                            const publishRelays = r.relay ? [r.relay] : [effectiveRelay];
-                            const pubs = pool.publish(publishRelays, signedEvent);
-                            await Promise.allSettled(pubs);
+                            const publishRelays = buildPublishRelayUrls(
+                                r.relay,
+                                initialRelayRef.current,
+                                relayRef.current
+                            );
+                            await publishAndLogFailures(pool, publishRelays, signedEvent, 'makeMove');
                         } catch (publishError) {
                             console.error('[useChessGame] Failed to publish move:', publishError);
                         }
@@ -200,27 +263,30 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
             }
             return false;
         },
-        [pubkey, gameId, pgnContent, pool, effectiveRelay]
+        [pubkey, gameId, pool]
     );
 
     const resign = useCallback(async () => {
         try {
-            const r = remoteGameStateRef.current;
             if (!pubkey || !window.nostr || !gameId) return false;
-            if (!isPubkeyTag(r.white) || !isPubkeyTag(r.black)) return false;
 
-            const gameCopy = chessFromPgnOrStart(pgnContent);
+            const gameCopy = chessFromPgnOrStart(pgnContentRef.current);
             if (gameCopy.isCheckmate() || gameCopy.isDraw()) return false;
 
-            const iAmWhite = pubkey.toLowerCase() === r.white!.toLowerCase();
-            const iAmBlack = pubkey.toLowerCase() === r.black!.toLowerCase();
+            const r = remoteGameStateRef.current;
+            const rp = resolvePlayerPubkeys(r, gameCopy);
+            if (!isPubkeyTag(rp.white) || !isPubkeyTag(rp.black)) return false;
+
+            const iAmWhite = pubkey.toLowerCase() === rp.white!.toLowerCase();
+            const iAmBlack = pubkey.toLowerCase() === rp.black!.toLowerCase();
             if (!iAmWhite && !iAmBlack) return false;
 
-            gameCopy.setHeader('White', r.white!);
-            gameCopy.setHeader('Black', r.black!);
+            gameCopy.setHeader('White', rp.white!);
+            gameCopy.setHeader('Black', rp.black!);
             const resignedColor = iAmWhite ? 'w' : 'b';
             const body = exportPgnAfterResignation(gameCopy, resignedColor);
             setPgnContent(body);
+            pgnContentRef.current = body;
 
             const eventTimestamp = Math.floor(Date.now() / 1000);
             lastEventTimestampRef.current = eventTimestamp;
@@ -231,8 +297,8 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
                 created_at: eventTimestamp,
                 tags: [
                     ['d', gameId],
-                    ['p', r.white!],
-                    ['p', r.black!],
+                    ['p', rp.white!],
+                    ['p', rp.black!],
                     ['alt', `Nostr Chess #${gameId.slice(0, 8)}`],
                     ...(r.relay ? [['relay', r.relay]] : []),
                 ],
@@ -240,15 +306,14 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
             };
 
             const signedEvent = await window.nostr.signEvent(event);
-            const publishRelays = r.relay ? [r.relay] : [effectiveRelay];
-            const pubs = pool.publish(publishRelays, signedEvent);
-            await Promise.allSettled(pubs);
+            const publishRelays = buildPublishRelayUrls(r.relay, initialRelayRef.current, relayRef.current);
+            await publishAndLogFailures(pool, publishRelays, signedEvent, 'resign');
             return true;
         } catch (e) {
             console.error('[useChessGame.resign]', e);
             return false;
         }
-    }, [pubkey, gameId, pgnContent, pool, effectiveRelay]);
+    }, [pubkey, gameId, pool]);
 
     const fen = game.fen();
     const whiteDisplay = remoteGameState.white || 'Player 1';
@@ -342,13 +407,12 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
             remoteGameStateRef.current = joined;
             setRemoteGameState(joined);
             setPgnContent(body);
+            pgnContentRef.current = body;
 
             try {
                 const signedEvent = await window.nostr.signEvent(event);
-                const pubs = pool.publish([targetRelay], signedEvent);
-                const results = await Promise.allSettled(pubs);
-                const success = results.some(r => r.status === 'fulfilled');
-                if (!success) console.warn('Publish completed but may have failed on some relays');
+                const joinRelays = buildPublishRelayUrls(targetRelay, initialRelayRef.current, relayRef.current);
+                await publishAndLogFailures(pool, joinRelays, signedEvent, 'joinGame');
                 return true;
             } catch (e) {
                 console.error('Failed to join game:', e);

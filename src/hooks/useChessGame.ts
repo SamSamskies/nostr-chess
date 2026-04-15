@@ -186,7 +186,8 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
                 const events = await queryablePool.querySync(subscriptionRelays, {
                     kinds: [CHESS_KIND],
                     '#d': [gameId],
-                    limit: 10,
+                    // We only need the latest snapshot for this game id.
+                    limit: 1,
                 });
 
                 if (events && events.length > 0) {

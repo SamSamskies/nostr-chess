@@ -91,43 +91,57 @@ export function Lobby() {
 
     const fetchGames = async () => {
         try {
-            const events = await pool.querySync([effectiveRelay], {
-                kinds: [CHESS_KIND],
-                limit: 50,
-            });
-
             const gameMap = new Map<string, GameState>();
-            events.forEach((event: Event) => {
-                const d = event.tags.find(t => t[0] === 'd')?.[1];
-                if (!d) return;
+            const pageSize = 200;
+            const targetUniqueGames = 50;
+            const maxPages = 6;
+            let until: number | undefined;
 
-                const existing = gameMap.get(d);
-                if (existing && (event.created_at <= (existing as any).created_at)) return;
+            for (let page = 0; page < maxPages; page++) {
+                const events: Event[] = await pool.querySync([effectiveRelay], {
+                    kinds: [CHESS_KIND],
+                    limit: pageSize,
+                    ...(until !== undefined ? { until } : {}),
+                });
+                if (events.length === 0) break;
 
-                const p = event.tags.filter(t => t[0] === 'p').map(t => t[1]).filter(Boolean);
-                const relay = event.tags.find(t => t[0] === 'relay')?.[1];
+                events.forEach((event: Event) => {
+                    const d = event.tags.find(t => t[0] === 'd')?.[1];
+                    if (!d) return;
 
-                const chess = loadPgnFromNip64(event.content);
-                if (!chess) return;
+                    const existing = gameMap.get(d);
+                    if (existing && event.created_at <= (existing.created_at ?? 0)) return;
 
-                const fen = chess.fen();
-                const hasBoth = p.length >= 2;
-                const outcome = resolveChessGameOutcome(chess, hasBoth);
+                    const p = event.tags.filter(t => t[0] === 'p').map(t => t[1]).filter(Boolean);
+                    const relay = event.tags.find(t => t[0] === 'relay')?.[1];
 
-                gameMap.set(d, {
-                    id: d,
-                    fen,
-                    white: p[0],
-                    black: p[1],
-                    status: outcome.status,
-                    winner: outcome.winner,
-                    turn: 'w',
-                    created_at: event.created_at,
-                    relay,
-                } as any);
-            });
+                    const chess = loadPgnFromNip64(event.content);
+                    if (!chess) return;
 
-            setGames(Array.from(gameMap.values()).sort((a: any, b: any) => b.created_at - a.created_at));
+                    const fen = chess.fen();
+                    const hasBoth = p.length >= 2;
+                    const outcome = resolveChessGameOutcome(chess, hasBoth);
+
+                    gameMap.set(d, {
+                        id: d,
+                        fen,
+                        white: p[0],
+                        black: p[1],
+                        status: outcome.status,
+                        winner: outcome.winner,
+                        turn: 'w',
+                        created_at: event.created_at,
+                        relay,
+                    });
+                });
+
+                if (gameMap.size >= targetUniqueGames) break;
+                const oldestInPage = events[events.length - 1];
+                if (!oldestInPage) break;
+                until = oldestInPage.created_at - 1;
+            }
+
+            setGames(Array.from(gameMap.values()).sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0)));
         } catch (e) {
             console.error('Failed to fetch games:', e);
         }

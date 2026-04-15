@@ -25,6 +25,19 @@ export interface GameState {
     created_at?: number;
 }
 
+interface PoolSubscription {
+    close(): void;
+}
+
+interface QueryableNostrPool {
+    querySync(relays: string[], filter: { kinds: number[]; '#d': string[]; limit: number }): Promise<Event[]>;
+    subscribeMany(
+        relays: string[],
+        filter: { kinds: number[]; '#d': string[] },
+        handlers: { onevent: (event: Event) => void; oneose?: () => void; onclose?: (reason: string) => void }
+    ): PoolSubscription;
+}
+
 function isPubkeyTag(s: string | undefined): boolean {
     return !!s && s.length >= 32 && !s.startsWith('Player');
 }
@@ -87,6 +100,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
     const [remoteGameState, setRemoteGameState] = useState<Partial<GameState>>({});
 
     const lastEventTimestampRef = useRef<number>(0);
+    const lastEventIdRef = useRef<string | null>(null);
 
     const game = useMemo(() => chessFromPgnOrStart(pgnContent), [pgnContent]);
 
@@ -115,6 +129,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
 
     useEffect(() => {
         if (!gameId || !pool) return;
+        const queryablePool = pool as unknown as QueryableNostrPool;
 
         const subscriptionRelays = initialRelay
             ? [...new Set([initialRelay, relayRef.current])]
@@ -126,7 +141,11 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
             if (d !== gameId) return;
 
             const eventTime = event.created_at;
-            if (eventTime <= lastEventTimestampRef.current) {
+            if (event.id === lastEventIdRef.current) {
+                console.log('[useChessGame] Skipping duplicate event id:', event.id);
+                return;
+            }
+            if (eventTime < lastEventTimestampRef.current) {
                 console.log('[useChessGame] Skipping old event:', eventTime, 'vs', lastEventTimestampRef.current);
                 return;
             }
@@ -141,6 +160,7 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
             }
 
             lastEventTimestampRef.current = eventTime;
+            lastEventIdRef.current = event.id;
 
             setPgnContent(event.content);
             pgnContentRef.current = event.content;
@@ -160,30 +180,30 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
             });
         };
 
-        const fetchInitial = async () => {
+        const fetchLatest = async (reason: string) => {
             try {
-                console.log('[useChessGame] Fetching initial game state...');
-                const events = await (pool as any).querySync(subscriptionRelays, {
+                console.log(`[useChessGame] Fetching latest game state (${reason})...`);
+                const events = await queryablePool.querySync(subscriptionRelays, {
                     kinds: [CHESS_KIND],
                     '#d': [gameId],
                     limit: 10,
                 });
 
                 if (events && events.length > 0) {
-                    events.sort((a: any, b: any) => b.created_at - a.created_at);
-                    console.log('[useChessGame] Found initial event:', events[0]);
+                    events.sort((a, b) => b.created_at - a.created_at);
+                    console.log('[useChessGame] Found latest event:', events[0]);
                     onEvent(events[0]);
                 } else {
-                    console.log('[useChessGame] No initial events found');
+                    console.log('[useChessGame] No game events found');
                 }
             } catch (e) {
-                console.error('[useChessGame] Initial fetch failed:', e);
+                console.error(`[useChessGame] Fetch latest failed (${reason}):`, e);
             }
         };
 
-        fetchInitial();
+        fetchLatest('initial');
 
-        const sub = (pool as any).subscribeMany(
+        const sub = queryablePool.subscribeMany(
             subscriptionRelays,
             {
                 kinds: [CHESS_KIND],
@@ -200,9 +220,24 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
             }
         );
 
+        const onVisibilityOrFocus = () => {
+            if (document.visibilityState === 'visible') {
+                fetchLatest('tab-visible');
+            }
+        };
+        const onWindowFocus = () => fetchLatest('window-focus');
+        const onOnline = () => fetchLatest('network-online');
+
+        document.addEventListener('visibilitychange', onVisibilityOrFocus);
+        window.addEventListener('focus', onWindowFocus);
+        window.addEventListener('online', onOnline);
+
         return () => {
             console.log('[useChessGame] Cleaning up subscription');
             sub.close();
+            document.removeEventListener('visibilitychange', onVisibilityOrFocus);
+            window.removeEventListener('focus', onWindowFocus);
+            window.removeEventListener('online', onOnline);
         };
     }, [gameId, pool, initialRelay]);
 
@@ -228,7 +263,6 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
 
                     if (pubkey && window.nostr && isPubkeyTag(rp.white) && isPubkeyTag(rp.black) && gameId) {
                         const eventTimestamp = Math.floor(Date.now() / 1000);
-                        lastEventTimestampRef.current = eventTimestamp;
 
                         const event: UnsignedEvent = {
                             kind: CHESS_KIND,
@@ -289,7 +323,6 @@ export function useChessGame(gameId?: string, initialRelay?: string) {
             pgnContentRef.current = body;
 
             const eventTimestamp = Math.floor(Date.now() / 1000);
-            lastEventTimestampRef.current = eventTimestamp;
 
             const event: UnsignedEvent = {
                 kind: CHESS_KIND,
